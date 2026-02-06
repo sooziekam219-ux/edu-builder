@@ -110,7 +110,9 @@ const generateLogicText = (type, subtype, answers) => {
 
 const App = () => {
     const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;    const [user, setUser] = useState(null);
+    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;   
+    const [user, setUser] = useState(null);
+    const [user, setUser] = useState(null);
     const [activeTab, setActiveTab] = useState('analysis');
     const [isProcessing, setIsProcessing] = useState(false);
 
