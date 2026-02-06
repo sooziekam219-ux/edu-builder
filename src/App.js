@@ -110,7 +110,7 @@ const generateLogicText = (type, subtype, answers) => {
 
 const App = () => {
     const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;   
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;   
     const [user, setUser] = useState(null);
     const [activeTab, setActiveTab] = useState('analysis');
     const [isProcessing, setIsProcessing] = useState(false);
@@ -221,9 +221,7 @@ const App = () => {
             return { inlineData: { mimeType: "image/png", data: base64 } };
         }));
 
-        // 주소를 아래처럼 1.5-flash로 먼저 테스트해보는 것을 강력 추천합니다.
-        // 2.0-flash가 404를 내뱉는다면 구글 API 라이브러리 버전 문제일 수 있습니다.
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
             method: "POST", 
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ 
@@ -508,7 +506,7 @@ const App = () => {
                 reader.readAsDataURL(file);
             });
             const template = templates.find(t => t.id === selectedTemplateId);
-            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: "Extract JSON for build." }, { inlineData: { mimeType: "image/png", data: base64 } }] }],
