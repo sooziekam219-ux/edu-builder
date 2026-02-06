@@ -198,69 +198,105 @@ const App = () => {
     };
 
     const runAnalysis = async () => {
-        if (analysisImages.length === 0) return;
-        setIsProcessing(true);
-        try {
-            const imageParts = await Promise.all(analysisImages.map(async (img) => {
-                const base64 = await new Promise(r => {
-                    const reader = new FileReader();
-                    reader.onload = () => r(reader.result.split(',')[1]);
-                    reader.readAsDataURL(img.file);
-                });
-                return { inlineData: { mimeType: "image/png", data: base64 } };
-            }));
+    if (analysisImages.length === 0) return;
+    setIsProcessing(true);
 
-            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
-                method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ contents: [{ parts: [{ text: KIM_HWA_KYUNG_PROMPT }, ...imageParts] }], generationConfig: { responseMimeType: "application/json" } })
+    // [중요] API 키를 가져옵니다. 
+    // Vercel 환경변수 이름이 REACT_APP_GEMINI_API_KEY 인지 꼭 확인하세요!
+    const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+
+    if (!apiKey) {
+        alert("API 키를 찾을 수 없습니다. Vercel 환경 변수 설정을 확인해주세요.");
+        setIsProcessing(false);
+        return;
+    }
+
+    try {
+        const imageParts = await Promise.all(analysisImages.map(async (img) => {
+            const base64 = await new Promise(r => {
+                const reader = new FileReader();
+                reader.onload = () => r(reader.result.split(',')[1]);
+                reader.readAsDataURL(img.file);
             });
-            const data = await res.json();
-            const parsed = JSON.parse(data.candidates[0].content.parts[0].text);
+            return { inlineData: { mimeType: "image/png", data: base64 } };
+        }));
 
-            const newPages = [];
-            parsed.sections.forEach((sec, sIdx) => {
-                const title = sec.content.title || "";
-                const type = title.includes('문제') ? '문제' : title.includes('함께') ? '함께 풀기' : title.includes('발견') ? '발견하기' : '개념';
-                let subQs = (sec.content.body || "").split('\n').filter(l => l.trim()).map((l, i) => ({ id: i, text: l }));
+        // 주소를 아래처럼 1.5-flash로 먼저 테스트해보는 것을 강력 추천합니다.
+        // 2.0-flash가 404를 내뱉는다면 구글 API 라이브러리 버전 문제일 수 있습니다.
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+            method: "POST", 
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+                contents: [{ parts: [{ text: KIM_HWA_KYUNG_PROMPT }, ...imageParts] }], 
+                generationConfig: { responseMimeType: "application/json" } 
+            })
+        });
 
-                if (type === '함께 풀기') {
-                    subQs = subQs.filter(q => q.text.includes('□'));
-                }
+        // 만약 여기서 404 에러가 난다면 res.ok가 false가 됩니다.
+        if (!res.ok) {
+            const errorData = await res.json();
+            throw new Error(errorData.error?.message || "API 요청 실패 (404/403)");
+        }
 
-                if (type === '문제' && subQs.length >= 3) {
-                    for (let i = 0; i < subQs.length; i += 2) {
-                        const chunk = subQs.slice(i, i + 2);
-                        newPages.push({
-                            id: Date.now() + sIdx + i,
-                            type,
-                            title: i === 0 ? title : `${title} (계속)`,
-                            content: sec.content.instruction || "",
-                            body: chunk.map(q => q.text).join('\n'),
-                            answers: sec.answers ? sec.answers.slice(i, i + 2) : [],
-                            description: [{ text: generateLogicText(type, sec.subtype, sec.answers ? sec.answers.slice(i, i + 2) : []) }],
-                            subQuestions: chunk
-                        });
-                    }
-                } else {
+        const data = await res.json();
+        
+        // 데이터 구조 안전하게 읽기 (candidates[0]이 없을 경우 대비)
+        if (!data.candidates || !data.candidates[0]) {
+            throw new Error("AI가 응답을 생성하지 못했습니다. (Safety Filter 등)");
+        }
+
+        const parsed = JSON.parse(data.candidates[0].content.parts[0].text);
+
+        // ... 이후 로직은 기존과 동일 ...
+        const newPages = [];
+        parsed.sections.forEach((sec, sIdx) => {
+            const title = sec.content.title || "";
+            const type = title.includes('문제') ? '문제' : title.includes('함께') ? '함께 풀기' : title.includes('발견') ? '발견하기' : '개념';
+            let subQs = (sec.content.body || "").split('\n').filter(l => l.trim()).map((l, i) => ({ id: i, text: l }));
+
+            if (type === '함께 풀기') {
+                subQs = subQs.filter(q => q.text.includes('□'));
+            }
+
+            if (type === '문제' && subQs.length >= 3) {
+                for (let i = 0; i < subQs.length; i += 2) {
+                    const chunk = subQs.slice(i, i + 2);
                     newPages.push({
-                        id: Date.now() + sIdx,
+                        id: Date.now() + sIdx + i,
                         type,
-                        title,
+                        title: i === 0 ? title : `${title} (계속)`,
                         content: sec.content.instruction || "",
-                        body: sec.content.body || "",
-                        answers: sec.answers || [],
-                        description: [{ text: generateLogicText(type, sec.subtype, sec.answers || []) }],
-                        subQuestions: subQs
+                        body: chunk.map(q => q.text).join('\n'),
+                        answers: sec.answers ? sec.answers.slice(i, i + 2) : [],
+                        description: [{ text: generateLogicText(type, sec.subtype, sec.answers ? sec.answers.slice(i, i + 2) : []) }],
+                        subQuestions: chunk
                     });
                 }
-            });
+            } else {
+                newPages.push({
+                    id: Date.now() + sIdx,
+                    type,
+                    title,
+                    content: sec.content.instruction || "",
+                    body: sec.content.body || "",
+                    answers: sec.answers || [],
+                    description: [{ text: generateLogicText(type, sec.subtype, sec.answers || []) }],
+                    subQuestions: subQs
+                });
+            }
+        });
 
-            setPages(newPages);
-            setActiveTab('storyboard');
-            if (newPages[0]) setMetadata(prev => ({ ...prev, activityName: newPages[0].title }));
-        } catch (err) { alert("분석 실패: " + err.message); }
-        finally { setIsProcessing(false); }
-    };
+        setPages(newPages);
+        setActiveTab('storyboard');
+        if (newPages[0]) setMetadata(prev => ({ ...prev, activityName: newPages[0].title }));
+
+    } catch (err) { 
+        console.error(err);
+        alert("분석 실패: " + err.message); 
+    } finally { 
+        setIsProcessing(false); 
+    }
+};
 
     // --- Math Rendering Helper (Improved) ---
     const renderMathText = (slide, textBlock, startX, startY, width, lineHeight = 0.4) => {
