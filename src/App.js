@@ -210,7 +210,7 @@ const App = () => {
                 return { inlineData: { mimeType: "image/png", data: base64 } };
             }));
 
-            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
                 method: "POST", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ contents: [{ parts: [{ text: KIM_HWA_KYUNG_PROMPT }, ...imageParts] }], generationConfig: { responseMimeType: "application/json" } })
             });
