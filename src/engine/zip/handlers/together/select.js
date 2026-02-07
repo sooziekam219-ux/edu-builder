@@ -33,7 +33,6 @@ function injectTogetherSelectHtml({ doc, data }) {
 
   const ml50Base = existingLines.find((l) => l.classList.contains("ml50"))?.cloneNode(true) || createBase(true);
   const ml100Base = existingLines.find((l) => l.classList.contains("ml100"))?.cloneNode(true) || createBase(false);
-  const defaultBase = existingLines[0]?.cloneNode(true) || ml100Base;
 
   // 2. 초기화 (oldzip logic: Wipe & Rebuild)
   container.innerHTML = "";
@@ -103,7 +102,7 @@ function patchTogetherSelectActJs(actJsText, data) {
   return out;
 }
 
-export default {
+const selectHandler = {
   typeKey: "together.select",
 
   normalize,
@@ -120,3 +119,5 @@ export default {
     return patchTogetherSelectActJs(actJsText, data);
   },
 };
+
+export default selectHandler;

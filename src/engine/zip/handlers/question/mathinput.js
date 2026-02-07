@@ -1,7 +1,7 @@
 import { injectQuestionBase } from "./base";
 import { sanitizeLaTeX } from "../../../utils/sanitize";
 
-export default {
+const mathInputHandler = {
   typeKey: "question.mathinput",
 
   normalize(raw) {
@@ -133,3 +133,5 @@ export default {
     return out;
   },
 };
+
+export default mathInputHandler;
