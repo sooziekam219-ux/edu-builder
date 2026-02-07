@@ -146,7 +146,9 @@ const App = () => {
     appId,
   });
 
-    const fileInputRef = useRef(null);
+    const builderImageInputRef = useRef(null);
+    const templateZipInputRef = useRef(null);
+
     const dragItem = useRef(null);
 
     const [statusMessage, setStatusMessage] = useState(null);
@@ -587,7 +589,7 @@ const App = () => {
         } finally {
             setIsProcessing(false);
             setUploadProgress(0);
-            if (fileInputRef.current) fileInputRef.current.value = '';
+            if (templateZipInputRef.current) templateZipInputRef.current.value = '';
         }
     };
 
@@ -645,8 +647,8 @@ const App = () => {
 
                     {activeTab === 'analysis' && (
                         <div className="space-y-10 animate-in slide-in-from-bottom-8 duration-700">
-                            <div onClick={() => fileInputRef.current.click()} className="group border-4 border-dashed border-slate-200 rounded-[4rem] p-24 flex flex-col items-center justify-center bg-white hover:bg-indigo-50 hover:border-indigo-400 transition-all cursor-pointer shadow-sm">
-                                <input ref={fileInputRef} type="file" multiple accept="image/*" onChange={(e) => setAnalysisImages(Array.from(e.target.files).map(f => ({ id: Math.random(), file: f, preview: URL.createObjectURL(f) })))} className="hidden" />
+                            <div onClick={() => builderImageInputRef.current.click()} className="group border-4 border-dashed border-slate-200 rounded-[4rem] p-24 flex flex-col items-center justify-center bg-white hover:bg-indigo-50 hover:border-indigo-400 transition-all cursor-pointer shadow-sm">
+                                <input ref={builderImageInputRef} type="file" multiple accept="image/*" onChange={(e) => setAnalysisImages(Array.from(e.target.files).map(f => ({ id: Math.random(), file: f, preview: URL.createObjectURL(f) })))} className="hidden" />
                                 <div className="p-10 bg-indigo-50 rounded-[2.5rem] text-indigo-600 mb-8 group-hover:scale-110 group-hover:bg-indigo-100 transition-all shadow-inner"><Upload size={72} /></div>
                                 <h3 className="text-3xl font-black text-slate-800">교과서 원고 업로드</h3>
                                 <p className="text-slate-400 font-bold mt-3">수학 김화경 교과서를 캡처한 png 파일을 최대 3장 업로드하면 한 번에 분석하여 스토리보드를 생성합니다.</p>
@@ -777,8 +779,8 @@ const App = () => {
 
                                     
                                     <label className="text-xs font-black text-slate-400 uppercase mt-10 mb-5 block ml-2 tracking-widest">2. Upload Builder Image</label>
-                                    <div onClick={() => fileInputRef.current.click()} className="aspect-[4/5] bg-slate-50 border-4 border-dashed border-slate-100 rounded-[3rem] flex items-center justify-center overflow-hidden cursor-pointer group hover:bg-indigo-50 hover:border-indigo-200 transition-all relative">
-                                        <input ref={fileInputRef} type="file" accept="image/*" onChange={handleBuilderImage} className="hidden" />
+                                    <div onClick={() => templateZipInputRef.current.click()} className="aspect-[4/5] bg-slate-50 border-4 border-dashed border-slate-100 rounded-[3rem] flex items-center justify-center overflow-hidden cursor-pointer group hover:bg-indigo-50 hover:border-indigo-200 transition-all relative">
+                                        <input ref={templateZipInputRef} type="file" accept="image/*" onChange={handleBuilderImage} className="hidden" />
                                         {builderInputImage ? <img src={builderInputImage} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-200 group-hover:scale-110 transition-transform" size={64} />}
                                     </div>
                                 </div>
@@ -827,8 +829,8 @@ const App = () => {
                         <div className="grid grid-cols-2 gap-12 animate-in fade-in duration-500">
                             <div className="bg-white p-16 rounded-[4.5rem] border border-slate-200 shadow-sm relative overflow-hidden group">
                                 <h3 className="text-3xl font-black mb-10">Add Template</h3>
-                                <div onClick={() => fileInputRef.current.click()} className="aspect-video bg-indigo-50 border-4 border-dashed border-indigo-100 rounded-[3.5rem] flex flex-col items-center justify-center text-indigo-600 cursor-pointer hover:bg-indigo-100 hover:border-indigo-300 transition-all shadow-inner">
-                                    <input ref={fileInputRef} type="file" accept=".zip" onChange={uploadTemplate} className="hidden" />
+                                <div onClick={() => templateZipInputRef.current.click()} className="aspect-video bg-indigo-50 border-4 border-dashed border-indigo-100 rounded-[3.5rem] flex flex-col items-center justify-center text-indigo-600 cursor-pointer hover:bg-indigo-100 hover:border-indigo-300 transition-all shadow-inner">
+                                    <input ref={templateZipInputRef} type="file" accept=".zip" onChange={uploadTemplate} className="hidden" />
                                     <Plus className="group-hover:rotate-90 transition-transform mb-4" size={80} />
                                     <p className="font-black uppercase tracking-widest text-xs">Drop ZIP Template Here</p>
                                 </div>
