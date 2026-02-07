@@ -1,0 +1,13 @@
+{
+  "typeKey": "question_mathinput",
+
+  "headerImg": "header h1 img.lang-image",
+  "guideText": ".q .stxt",
+  "mainQuestion": ".q > p",
+
+  "itemSelector": "main > div.flex-row",
+  "itemLabel": ".a2 > label",
+  "itemPrompt": ".a2 > p",
+
+  "inputIdPrefix": "QuizInput"
+}

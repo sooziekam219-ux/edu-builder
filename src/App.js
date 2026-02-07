@@ -11,6 +11,7 @@ import {
     BookOpen, GripVertical, ChevronRight, MonitorPlay, MessageSquare,
     Film, Eye, Code, Square, PenTool
 } from 'lucide-react';
+import { processAndDownloadZip } from "./engine/zip/zipProcessor";
 
 // --- Constants & Assets ---
 const JSZIP_CDN = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
@@ -126,6 +127,18 @@ const App = () => {
     const [builderInputImage, setBuilderInputImage] = useState(null);
     const [extractedBuildData, setExtractedBuildData] = useState(null);
     const [removePagination, setRemovePagination] = useState(true); // Added for Zip logic
+
+    const onClickZip = () =>
+  processAndDownloadZip({
+    templates,
+    selectedTemplateId,
+    extractedBuildData,
+    setStatusMessage,
+    setIsProcessing,
+    removePagination,
+    db,
+    appId,
+  });
 
     const fileInputRef = useRef(null);
     const dragItem = useRef(null);
@@ -520,275 +533,7 @@ const App = () => {
         finally { setIsProcessing(false); }
     };
 
-    const processAndDownloadZip = async () => {
-        console.log("processAndDownloadZip called");
-        if (!window.JSZip) {
-            setStatusMessage({ title: "오류", message: "JSZip 라이브러리가 로드되지 않았습니다. 잠시 후 다시 시도해주세요.", type: 'error' });
-            return;
-        }
-        if (!selectedTemplateId) {
-            setStatusMessage({ title: "알림", message: "템플릿이 선택되지 않았습니다.", type: 'error' });
-            return;
-        }
-        if (!extractedBuildData) {
-            setStatusMessage({ title: "알림", message: "AI 분석 데이터가 없습니다. 이미지를 업로드하고 분석을 기다려주세요.", type: 'error' });
-            return;
-        }
-
-        setIsProcessing(true);
-
-        try {
-            const templateMeta = templates.find(t => t.id === selectedTemplateId);
-            if (!templateMeta) throw new Error("템플릿 메타데이터를 찾을 수 없습니다.");
-            console.log("Template Meta:", templateMeta);
-
-            const isTogether = templateMeta.type === 'together';
-            console.log("Is Together:", isTogether);
-
-            const chunksRef = collection(db, 'artifacts', appId, 'public', 'data', 'templates', selectedTemplateId, 'chunks');
-            const chunksSnap = await getDocs(chunksRef);
-            console.log("Chunks found:", chunksSnap.size);
-
-            if (chunksSnap.empty) throw new Error("서버에서 템플릿 데이터를 찾을 수 없습니다. (업로드 실패 가능성)\n해당 템플릿을 삭제 후 다시 업로드해주세요.");
-
-            const sorted = chunksSnap.docs.map(d => d.data()).sort((a, b) => a.index - b.index);
-
-            let combined;
-            try {
-                const chunkBinaries = sorted.map(c => {
-                    const bin = atob(c.data);
-                    const u8 = new Uint8Array(bin.length);
-                    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-                    return u8;
-                });
-                const totalSize = chunkBinaries.reduce((a, b) => a + b.length, 0);
-                combined = new Uint8Array(totalSize);
-                let offset = 0;
-                for (const b of chunkBinaries) { combined.set(b, offset); offset += b.length; }
-                console.log("Binary combined, total size:", totalSize);
-            } catch (err) { throw new Error("Base64 복원 실패: " + err.message); }
-
-            const zip = new window.JSZip();
-            const loadedZip = await zip.loadAsync(combined);
-            console.log("Zip loaded successfully");
-
-            const parser = new DOMParser();
-            const serializer = new XMLSerializer();
-
-            const renderMathToDOM = (doc, text) => {
-                const fragment = doc.createDocumentFragment();
-                if (!text) return fragment;
-
-                // 수식(\(...\)), 대괄호 수식, 빈칸(□)을 기준으로 분리
-                const parts = text.split(/(\\\(.*?\\\)|\\\[.*?\\\]|□)/g);
-
-                parts.forEach(part => {
-                    if (part === '□') {
-                        // 빈칸 박스 생성 (이 부분은 유지)
-                        const span = doc.createElement('span');
-                        span.style.display = 'inline-block';
-                        span.style.width = '32px';
-                        span.style.height = '32px';
-                        span.style.backgroundColor = '#00bcf1';
-                        span.style.verticalAlign = 'middle';
-                        span.style.margin = '0 4px';
-                        span.style.borderRadius = '2px';
-                        span.style.border = '1px solid #00bcf1';
-                        fragment.appendChild(span);
-                    } else if (part.trim() !== '' || part === ' ') {
-                        // 핵심 수정: mjx-container를 수동으로 만들지 않고 
-                        // MathJax가 읽을 수 있게 Raw Text(수식 포함) 그대로 삽입
-                        const textNode = doc.createTextNode(part);
-                        fragment.appendChild(textNode);
-                    }
-                });
-                return fragment;
-            };
-
-            const promises = [];
-            const filesToRemove = [];
-
-            loadedZip.forEach((path, file) => {
-                if (path.startsWith('common1/')) return;
-
-                // Pagination Removal Logic
-                if (removePagination) {
-                    const fileName = path.split('/').pop();
-                    if ((fileName.startsWith('view') && fileName.endsWith('.html') && !fileName.includes('01')) ||
-                        (fileName.startsWith('act') && fileName.endsWith('.js') && (fileName.includes('02') || fileName.includes('2')))) {
-                        filesToRemove.push(path);
-                        return;
-                    }
-                }
-
-                if (path.endsWith('.html') && path.includes('view')) {
-                    promises.push(file.async("string").then(content => {
-                        const doc = parser.parseFromString(content, 'text/html');
-
-                        // 1. Solution Popup & Layout Styles
-                        const style = doc.createElement('style');
-                        style.textContent = `
-                            .pop.solution > div { width: 90% !important; max-width: 1200px !important; min-width: 300px !important; left: 50% !important; top: 50% !important; transform: translate(-50%, -50%) !important; height: auto !important; max-height: 85vh !important; overflow-y: auto !important; margin: 0 !important; }
-                            .pop.solution > div > div { padding: 30px !important; }
-                            @media screen and (max-width: 768px) { .pop.solution > div { width: 95% !important; } .solution-cont { font-size: 16px !important; } }
-                            mjx-container { white-space: nowrap; }
-                            mi { font-style: normal; }
-                        `;
-                        doc.head.appendChild(style);
-
-                        // 2. Remove Pagination if needed
-                        if (removePagination) doc.querySelector('.pagination')?.remove();
-
-                        // 3. Guide Text
-                        const stxt = doc.querySelector('.stxt');
-                        if (stxt && extractedBuildData.guideText) {
-                            stxt.textContent = extractedBuildData.guideText.trim().startsWith('▷') ? extractedBuildData.guideText.trim() : `▷ ${extractedBuildData.guideText.trim()}`;
-                        }
-
-                        // 4. Main Question
-                        const qp = doc.querySelector('.q > p');
-                        if (qp && extractedBuildData.mainQuestion) {
-                            if (qp.childNodes[0]?.nodeType === 3) qp.childNodes[0].textContent = extractedBuildData.mainQuestion;
-                        }
-
-                        // 5. Content Injection
-                        if (isTogether && extractedBuildData.lines) {
-                            const container = doc.querySelector('div[translate="no"]');
-                            if (container) {
-                                const existingLines = Array.from(container.querySelectorAll('.txt1'));
-                                const ml50Base = existingLines.find(l => l.classList.contains('ml50'))?.cloneNode(true);
-                                const ml100Base = existingLines.find(l => l.classList.contains('ml100'))?.cloneNode(true);
-                                const defaultBase = existingLines[0]?.cloneNode(true);
-                                container.innerHTML = '';
-                                let bId = 0;
-                                extractedBuildData.lines.forEach((line) => {
-                                    const newLine = (line.label ? (ml50Base || defaultBase) : (ml100Base || defaultBase)).cloneNode(true);
-                                    newLine.innerHTML = '';
-                                    newLine.className = line.label ? 'txt1 mb40 ml50' : 'txt1 mb40 ml100 flex-row ai-c';
-
-                                    if (line.label) { const lSpan = doc.createElement('span'); lSpan.textContent = line.label; newLine.appendChild(lSpan); }
-                                    if (line.parts) {
-                                        // processAndDownloadZip 함수 내부의 line.parts 처리 루프
-                                        line.parts.forEach((part) => {
-                                            if (part.type === 'text') {
-                                                const tSpan = doc.createElement('span');
-                                                if (!line.label) tSpan.className = 'ml10';
-
-                                                // 수식 깨짐 방지: Raw 텍스트(LaTeX 포함)를 직접 주입하여 MathJax가 처리하게 함
-                                                tSpan.innerHTML = sanitizeLaTeX(part.content);
-                                                newLine.appendChild(tSpan);
-                                            } else if (part.type === 'blank') {
-                                                bId++;
-                                                const bSpan = doc.createElement('span');
-                                                bSpan.className = 'btn-blank-wrap ml10';
-
-                                                // AI가 도출한 correctIndex(1~3)를 바탕으로 실제 정답 텍스트 추출
-                                                const options = part.options || [];
-                                                const correctIdx = (parseInt(part.correctIndex) || 1) - 1; // 0-based 인덱스로 변환
-                                                // processAndDownloadZip 내부 수정
-                                                const correctValue = options[correctIdx] || "";
-                                                const finalCorrect = sanitizeLaTeX(correctValue); // 여기서 $ 기호가 \( \)로 바뀜
-
-                                                bSpan.innerHTML = `
-    <input type="checkbox" class="check-blank" id="check-blank${bId}">
-    <label for="check-blank${bId}" class="btn-blank">빈칸</label>
-    <ul class="select-wrap bottom">
-        ${options.map(opt => `<li><button type="button" class="btn-select">${sanitizeLaTeX(opt)}</button></li>`).join('')}
-    </ul>
-    <span class="write-txt" style="width: ${part.width || 120}px"></span>
-    <span class="correct">${finalCorrect}</span> 
-`; // act.js 수정 없이 정답 텍스트가 일치하게 됨
-                                                newLine.appendChild(bSpan);
-                                            }
-                                        });
-                                    }
-                                    container.appendChild(newLine);
-                                });
-                            }
-                        } else if (extractedBuildData.subQuestions) {
-                            const rowTemplate = doc.querySelector('.flex-row.ai-s.jc-sb');
-                            if (rowTemplate) {
-                                const parent = rowTemplate.parentNode;
-                                const rows = Array.from(parent.querySelectorAll('.flex-row.ai-s.jc-sb')).filter(r => r.querySelector('.a2'));
-                                rows.forEach(r => r.remove());
-                                extractedBuildData.subQuestions.forEach((sq, i) => {
-                                    const newRow = rowTemplate.cloneNode(true);
-                                    const label = newRow.querySelector('.a2 label');
-                                    const p = newRow.querySelector('.a2 p');
-                                    const inp = newRow.querySelector('.inp-wrap > div');
-                                    // Solved Button Aria Fix
-                                    const solveBtn = newRow.querySelector('.btn-solve');
-                                    if (solveBtn) solveBtn.setAttribute('aria-haspopup', 'dialog');
-
-                                    if (label) label.textContent = sq.label;
-                                    if (p) p.innerHTML = sanitizeLaTeX(sq.passage);
-                                    if (inp) {
-                                        inp.classList.forEach(c => { if (c.startsWith('w')) inp.classList.remove(c); });
-                                        inp.classList.add(sq.inputWidth || 'w200');
-                                    }
-                                    if (i !== extractedBuildData.subQuestions.length - 1) newRow.classList.add('mb80');
-                                    parent.appendChild(newRow);
-                                });
-                            }
-                            // Solution Popup Generation
-                            // [기존 418행 ~ 433행 부근을 아래 내용으로 교체]
-                            const solPopups = doc.querySelectorAll('.pop.solution'); // HTML에 이미 존재하는 팝업 틀들
-
-                            if (solPopups.length > 0 && extractedBuildData.subQuestions) {
-                                extractedBuildData.subQuestions.forEach((sq, idx) => {
-                                    // 인덱스에 맞는 팝업 틀이 존재할 경우만 실행
-                                    if (solPopups[idx]) {
-                                        const cont = solPopups[idx].querySelector('.cont');
-                                        if (cont) {
-                                            // 수식 기호를 보정(\( \))하고 내용만 교체
-                                            cont.innerHTML = sanitizeLaTeX(sq.explanation);
-                                            cont.setAttribute('aria-label', '');
-                                        }
-                                    }
-                                });
-                            }
-                        }
-                        loadedZip.file(path, serializer.serializeToString(doc));
-                    }));
-                }
-                if (path.endsWith('.js') && path.includes('act')) {
-                    promises.push(file.async("string").then(content => {
-                        let js = content;
-                        if (isTogether && extractedBuildData.lines) {
-                            const daps = [];
-                            extractedBuildData.lines.forEach(l => l.parts?.filter(p => p.type === 'blank').forEach(p => daps.push(p.correctIndex - 1)));
-                            js = js.replace(/var\s+dap_array\s*=\s*\[[\s\S]*?\]\s*;/g, `var dap_array = ${JSON.stringify(daps)};`);
-                            js = js.replace(/var\s+q_len\s*=\s*dap_array\.length\s*;/g, `var q_len = ${daps.length};`);
-                        } else if (extractedBuildData.subQuestions) {
-                            const daps = extractedBuildData.subQuestions.map(s => s.answer);
-                            js = js.replace(/(const|var|let)\s+answers\s*=\s*\[[\s\S]*?\]\s*;/g, `$1 answers = ${JSON.stringify(daps)};`);
-                        }
-                        loadedZip.file(path, js);
-                    }));
-                }
-            });
-
-            await Promise.all(promises);
-            filesToRemove.forEach(path => loadedZip.remove(path));
-            console.log("Files processed. Generating blob...");
-
-            const blob = await loadedZip.generateAsync({ type: "blob" });
-            console.log("Blob generated. Size:", blob.size);
-            if (blob.size === 0) throw new Error("생성된 ZIP 파일의 크기가 0입니다.");
-
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = `Result_${templateMeta.name}_${Date.now()}.zip`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-
-            setStatusMessage({ title: "성공", message: "ZIP 빌드 및 다운로드가 완료되었습니다.", type: 'success' });
-        } catch (e) {
-            console.error(e);
-            setStatusMessage({ title: "오류", message: "다운로드 실패: " + e.message, type: 'error' });
-        } finally { setIsProcessing(false); }
-    };
+    
 
     const uploadTemplate = async (e) => {
         const file = e.target.files[0];
@@ -1018,7 +763,7 @@ const App = () => {
                                                     </div>
                                                 ))}
                                             </div>
-                                            <button onClick={processAndDownloadZip} className="w-full py-10 bg-slate-900 text-white rounded-[3rem] font-black text-3xl shadow-2xl hover:bg-black hover:scale-[1.01] active:scale-95 transition-all flex items-center justify-center gap-6">
+                                            <button onClick={onClickZip} className="w-full py-10 bg-slate-900 text-white rounded-[3rem] font-black text-3xl shadow-2xl hover:bg-black hover:scale-[1.01] active:scale-95 transition-all flex items-center justify-center gap-6">
                                                 <Download size={32} /> ZIP PACKAGING & DOWNLOAD
                                             </button>
                                         </div>
