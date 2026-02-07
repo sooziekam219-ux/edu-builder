@@ -115,7 +115,11 @@ const App = () => {
     const [user, setUser] = useState(null);
     const [activeTab, setActiveTab] = useState('analysis');
     const [isProcessing, setIsProcessing] = useState(false);
-
+    const TYPE_DEFS = [
+  { typeKey: "question_mathinput", label: "문제 > 수식입력형" },
+  { typeKey: "together_select", label: "함께 풀기 > 선택형" },
+  // 이후 계속 추가
+];
     const [analysisImages, setAnalysisImages] = useState([]);
     const [pages, setPages] = useState([]);
     const [metadata, setMetadata] = useState({
@@ -124,9 +128,11 @@ const App = () => {
 
     const [templates, setTemplates] = useState([]);
     const [selectedTemplateId, setSelectedTemplateId] = useState('');
+    const [selectedTypeKey, setSelectedTypeKey] = useState(TYPE_DEFS[0].typeKey);
     const [builderInputImage, setBuilderInputImage] = useState(null);
     const [extractedBuildData, setExtractedBuildData] = useState(null);
     const [removePagination, setRemovePagination] = useState(true); // Added for Zip logic
+    const filteredTemplates = templates.filter(t => t.typeKey === selectedTypeKey);
 
     const onClickZip = () =>
   processAndDownloadZip({
@@ -727,10 +733,49 @@ const App = () => {
                         <div className="grid grid-cols-3 gap-12 animate-in fade-in duration-500">
                             <div className="col-span-1 space-y-8">
                                 <div className="bg-white p-10 rounded-[3.5rem] border border-slate-200 shadow-sm">
-                                    <label className="text-xs font-black text-slate-400 uppercase mb-5 block ml-2 tracking-widest">1. Select Template</label>
-                                    <select value={selectedTemplateId} onChange={e => setSelectedTemplateId(e.target.value)} className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-3xl font-black outline-none focus:border-indigo-300 transition-all appearance-none">
-                                        {templates.map(t => <option key={t.id} value={t.id}>{t.name} ({t.type})</option>)}
+                                    
+                                    <label className="text-xs font-black text-slate-400 uppercase mb-5 block ml-2 tracking-widest">
+                                    1. Select Type
+                                    </label>
+                                    <select
+                                    value={selectedTypeKey}
+                                    onChange={(e) => {
+                                        setSelectedTypeKey(e.target.value);
+                                        setSelectedTemplateId(""); // 유형 바꾸면 템플릿 선택 초기화
+                                    }}
+                                    className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-3xl font-black outline-none focus:border-indigo-300 transition-all appearance-none"
+                                    >
+                                    {TYPE_DEFS.map((t) => (
+                                        <option key={t.typeKey} value={t.typeKey}>
+                                        {t.label}
+                                        </option>
+                                    ))}
                                     </select>
+
+                                    <label className="text-xs font-black text-slate-400 uppercase mt-10 mb-5 block ml-2 tracking-widest">
+                                    2. Select Template
+                                    </label>
+
+                                    {filteredTemplates.length === 0 ? (
+                                    <div className="w-full p-5 bg-amber-50 border-2 border-amber-200 rounded-3xl font-black text-amber-700">
+                                        이 유형에 연결된 템플릿이 없습니다. 템플릿 zip을 업로드해야 합니다.
+                                    </div>
+                                    ) : (
+                                    <select
+                                        value={selectedTemplateId || filteredTemplates[0].id}
+                                        onChange={(e) => setSelectedTemplateId(e.target.value)}
+                                        className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-3xl font-black outline-none focus:border-indigo-300 transition-all appearance-none"
+                                    >
+                                        {filteredTemplates.map((t) => (
+                                        <option key={t.id} value={t.id}>
+                                            {t.name}
+                                        </option>
+                                        ))}
+                                    </select>
+                                    )}
+
+
+                                    
                                     <label className="text-xs font-black text-slate-400 uppercase mt-10 mb-5 block ml-2 tracking-widest">2. Upload Builder Image</label>
                                     <div onClick={() => fileInputRef.current.click()} className="aspect-[4/5] bg-slate-50 border-4 border-dashed border-slate-100 rounded-[3rem] flex items-center justify-center overflow-hidden cursor-pointer group hover:bg-indigo-50 hover:border-indigo-200 transition-all relative">
                                         <input ref={fileInputRef} type="file" accept="image/*" onChange={handleBuilderImage} className="hidden" />
