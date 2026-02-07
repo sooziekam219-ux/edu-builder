@@ -12,11 +12,18 @@ import {
     Film, Eye, Code, Square, PenTool
 } from 'lucide-react';
 import { processAndDownloadZip } from "./engine/zip/zipProcessor";
+import { TYPE_KEYS } from "./engine/typeKeys";
+console.log("App.js loaded");
 
 // --- Constants & Assets ---
 const JSZIP_CDN = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
 const PPTX_CDN = "https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs@3.12.0/dist/pptxgen.bundle.js";
+const link = document.createElement('link');
+link.href = 'https://fonts.googleapis.com/css2?family=Nanum+Gothic&display=swap';
+link.rel = 'stylesheet';
+document.head.appendChild(link);
 
+document.body.style.fontFamily = "'Nanum Gothic', sans-serif";
 const ASSETS = {
     TITLES: {
         '발견하기': 'https://i.imgur.com/t5oUrkW.png',
@@ -36,7 +43,17 @@ const ASSETS = {
 };
 
 // --- Firebase Config ---
-const firebaseConfig = JSON.parse(process.env.REACT_APP_FIREBASE_CONFIG);
+const raw = process.env.REACT_APP_FIREBASE_CONFIG;
+console.log("REACT_APP_FIREBASE_CONFIG:", raw);
+
+if (!raw) throw new Error("REACT_APP_FIREBASE_CONFIG가 비어있음(.env 설정 확인)");
+
+let firebaseConfig;
+try {
+    firebaseConfig = JSON.parse(raw);
+} catch (e) {
+    throw new Error("REACT_APP_FIREBASE_CONFIG JSON 파싱 실패: " + e.message);
+}
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -111,15 +128,23 @@ const generateLogicText = (type, subtype, answers) => {
 
 const App = () => {
     const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;   
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
     const [user, setUser] = useState(null);
     const [activeTab, setActiveTab] = useState('analysis');
     const [isProcessing, setIsProcessing] = useState(false);
     const TYPE_DEFS = [
-  { typeKey: "question.mathinput", label: "문제 > 수식입력형" },
-  { typeKey: "together.select", label: "함께 풀기 > 선택형" },
-  // 이후 계속 추가
-];
+        {
+            typeKey: TYPE_KEYS.QUESTION_MATHINPUT,
+            label: "문제 > 수식입력형",
+        },
+        {
+            typeKey: TYPE_KEYS.TOGETHER_SELECT,
+            label: "함께 풀기 > 선택형",
+        },
+    ];
+
+    // 이후 계속 추가
+
     const [analysisImages, setAnalysisImages] = useState([]);
     const [pages, setPages] = useState([]);
     const [metadata, setMetadata] = useState({
@@ -129,22 +154,25 @@ const App = () => {
     const [templates, setTemplates] = useState([]);
     const [selectedTemplateId, setSelectedTemplateId] = useState('');
     const [selectedTypeKey, setSelectedTypeKey] = useState(TYPE_DEFS[0].typeKey);
-    const [builderInputImage, setBuilderInputImage] = useState(null);
-    const [extractedBuildData, setExtractedBuildData] = useState(null);
-    const [removePagination, setRemovePagination] = useState(true); // Added for Zip logic
+
+    // [New] Multi-Page Builder State
+    const [buildPages, setBuildPages] = useState([{ id: 1, image: null, data: null }]);
+    const [activePageIndex, setActivePageIndex] = useState(0);
+
+    const [removePagination, setRemovePagination] = useState(true);
     const filteredTemplates = templates.filter(t => t.typeKey === selectedTypeKey);
 
     const onClickZip = () =>
-  processAndDownloadZip({
-    templates,
-    selectedTemplateId,
-    extractedBuildData,
-    setStatusMessage,
-    setIsProcessing,
-    removePagination,
-    db,
-    appId,
-  });
+        processAndDownloadZip({
+            templates,
+            selectedTemplateId,
+            buildPages,
+            setStatusMessage,
+            setIsProcessing,
+            removePagination,
+            db,
+            appId,
+        });
 
     const builderImageInputRef = useRef(null);
     const templateZipInputRef = useRef(null);
@@ -173,25 +201,25 @@ const App = () => {
     };
 
     useEffect(() => {
-    [JSZIP_CDN, PPTX_CDN].forEach(src => {
-        if (!document.querySelector(`script[src="${src}"]`)) {
-            const script = document.createElement('script'); script.src = src; script.async = true; document.head.appendChild(script);
-        }
-    });
+        [JSZIP_CDN, PPTX_CDN].forEach(src => {
+            if (!document.querySelector(`script[src="${src}"]`)) {
+                const script = document.createElement('script'); script.src = src; script.async = true; document.head.appendChild(script);
+            }
+        });
 
-    const initAuth = async () => {
-        // 복잡한 조건문 대신, 단순히 익명 로그인을 시도하도록 수정합니다.
-        try {
-            await signInAnonymously(auth);
-        } catch (error) {
-            console.error("인증 에러:", error);
-        }
-    };
-    initAuth();
+        const initAuth = async () => {
+            // 복잡한 조건문 대신, 단순히 익명 로그인을 시도하도록 수정합니다.
+            try {
+                await signInAnonymously(auth);
+            } catch (error) {
+                console.error("인증 에러:", error);
+            }
+        };
+        initAuth();
 
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
-}, []);
+        const unsubscribe = onAuthStateChanged(auth, setUser);
+        return () => unsubscribe();
+    }, []);
 
     useEffect(() => {
         if (!user) return;
@@ -199,9 +227,21 @@ const App = () => {
         return onSnapshot(q, (snapshot) => {
             const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setTemplates(list);
-            if (list.length > 0 && !selectedTemplateId) setSelectedTemplateId(list[0].id);
         });
-    }, [user]);
+    }, [user, db, appId]);
+
+    useEffect(() => {
+        if (filteredTemplates.length === 0) {
+            setSelectedTemplateId("");
+            return;
+        }
+
+        const exists = filteredTemplates.some(t => t.id === selectedTemplateId);
+        if (!selectedTemplateId || !exists) {
+            setSelectedTemplateId(filteredTemplates[0].id);
+        }
+    }, [selectedTypeKey, filteredTemplates, selectedTemplateId]);
+
 
     const renderMathToHTML = (text) => {
         if (!text) return null;
@@ -219,103 +259,103 @@ const App = () => {
     };
 
     const runAnalysis = async () => {
-    if (analysisImages.length === 0) return;
-    setIsProcessing(true);
+        if (analysisImages.length === 0) return;
+        setIsProcessing(true);
 
-    // [중요] API 키를 가져옵니다. 
-    // Vercel 환경변수 이름이 REACT_APP_GEMINI_API_KEY 인지 꼭 확인하세요!
-    const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+        // [중요] API 키를 가져옵니다. 
+        // Vercel 환경변수 이름이 REACT_APP_GEMINI_API_KEY 인지 꼭 확인하세요!
+        const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
 
-    if (!apiKey) {
-        alert("API 키를 찾을 수 없습니다. Vercel 환경 변수 설정을 확인해주세요.");
-        setIsProcessing(false);
-        return;
-    }
+        if (!apiKey) {
+            alert("API 키를 찾을 수 없습니다. Vercel 환경 변수 설정을 확인해주세요.");
+            setIsProcessing(false);
+            return;
+        }
 
-    try {
-        const imageParts = await Promise.all(analysisImages.map(async (img) => {
-            const base64 = await new Promise(r => {
-                const reader = new FileReader();
-                reader.onload = () => r(reader.result.split(',')[1]);
-                reader.readAsDataURL(img.file);
+        try {
+            const imageParts = await Promise.all(analysisImages.map(async (img) => {
+                const base64 = await new Promise(r => {
+                    const reader = new FileReader();
+                    reader.onload = () => r(reader.result.split(',')[1]);
+                    reader.readAsDataURL(img.file);
+                });
+                return { inlineData: { mimeType: "image/png", data: base64 } };
+            }));
+
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: KIM_HWA_KYUNG_PROMPT }, ...imageParts] }],
+                    generationConfig: { responseMimeType: "application/json" }
+                })
             });
-            return { inlineData: { mimeType: "image/png", data: base64 } };
-        }));
 
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-            method: "POST", 
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ 
-                contents: [{ parts: [{ text: KIM_HWA_KYUNG_PROMPT }, ...imageParts] }], 
-                generationConfig: { responseMimeType: "application/json" } 
-            })
-        });
-
-        // 만약 여기서 404 에러가 난다면 res.ok가 false가 됩니다.
-        if (!res.ok) {
-            const errorData = await res.json();
-            throw new Error(errorData.error?.message || "API 요청 실패 (404/403)");
-        }
-
-        const data = await res.json();
-        
-        // 데이터 구조 안전하게 읽기 (candidates[0]이 없을 경우 대비)
-        if (!data.candidates || !data.candidates[0]) {
-            throw new Error("AI가 응답을 생성하지 못했습니다. (Safety Filter 등)");
-        }
-
-        const parsed = JSON.parse(data.candidates[0].content.parts[0].text);
-
-        // ... 이후 로직은 기존과 동일 ...
-        const newPages = [];
-        parsed.sections.forEach((sec, sIdx) => {
-            const title = sec.content.title || "";
-            const type = title.includes('문제') ? '문제' : title.includes('함께') ? '함께 풀기' : title.includes('발견') ? '발견하기' : '개념';
-            let subQs = (sec.content.body || "").split('\n').filter(l => l.trim()).map((l, i) => ({ id: i, text: l }));
-
-            if (type === '함께 풀기') {
-                subQs = subQs.filter(q => q.text.includes('□'));
+            // 만약 여기서 404 에러가 난다면 res.ok가 false가 됩니다.
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.error?.message || "API 요청 실패 (404/403)");
             }
 
-            if (type === '문제' && subQs.length >= 3) {
-                for (let i = 0; i < subQs.length; i += 2) {
-                    const chunk = subQs.slice(i, i + 2);
+            const data = await res.json();
+
+            // 데이터 구조 안전하게 읽기 (candidates[0]이 없을 경우 대비)
+            if (!data.candidates || !data.candidates[0]) {
+                throw new Error("AI가 응답을 생성하지 못했습니다. (Safety Filter 등)");
+            }
+
+            const parsed = JSON.parse(data.candidates[0].content.parts[0].text);
+
+            // ... 이후 로직은 기존과 동일 ...
+            const newPages = [];
+            parsed.sections.forEach((sec, sIdx) => {
+                const title = sec.content.title || "";
+                const type = title.includes('문제') ? '문제' : title.includes('함께') ? '함께 풀기' : title.includes('발견') ? '발견하기' : '개념';
+                let subQs = (sec.content.body || "").split('\n').filter(l => l.trim()).map((l, i) => ({ id: i, text: l }));
+
+                if (type === '함께 풀기') {
+                    subQs = subQs.filter(q => q.text.includes('□'));
+                }
+
+                if (type === '문제' && subQs.length >= 3) {
+                    for (let i = 0; i < subQs.length; i += 2) {
+                        const chunk = subQs.slice(i, i + 2);
+                        newPages.push({
+                            id: Date.now() + sIdx + i,
+                            type,
+                            title: i === 0 ? title : `${title} (계속)`,
+                            content: sec.content.instruction || "",
+                            body: chunk.map(q => q.text).join('\n'),
+                            answers: sec.answers ? sec.answers.slice(i, i + 2) : [],
+                            description: [{ text: generateLogicText(type, sec.subtype, sec.answers ? sec.answers.slice(i, i + 2) : []) }],
+                            subQuestions: chunk
+                        });
+                    }
+                } else {
                     newPages.push({
-                        id: Date.now() + sIdx + i,
+                        id: Date.now() + sIdx,
                         type,
-                        title: i === 0 ? title : `${title} (계속)`,
+                        title,
                         content: sec.content.instruction || "",
-                        body: chunk.map(q => q.text).join('\n'),
-                        answers: sec.answers ? sec.answers.slice(i, i + 2) : [],
-                        description: [{ text: generateLogicText(type, sec.subtype, sec.answers ? sec.answers.slice(i, i + 2) : []) }],
-                        subQuestions: chunk
+                        body: sec.content.body || "",
+                        answers: sec.answers || [],
+                        description: [{ text: generateLogicText(type, sec.subtype, sec.answers || []) }],
+                        subQuestions: subQs
                     });
                 }
-            } else {
-                newPages.push({
-                    id: Date.now() + sIdx,
-                    type,
-                    title,
-                    content: sec.content.instruction || "",
-                    body: sec.content.body || "",
-                    answers: sec.answers || [],
-                    description: [{ text: generateLogicText(type, sec.subtype, sec.answers || []) }],
-                    subQuestions: subQs
-                });
-            }
-        });
+            });
 
-        setPages(newPages);
-        setActiveTab('storyboard');
-        if (newPages[0]) setMetadata(prev => ({ ...prev, activityName: newPages[0].title }));
+            setPages(newPages);
+            setActiveTab('storyboard');
+            if (newPages[0]) setMetadata(prev => ({ ...prev, activityName: newPages[0].title }));
 
-    } catch (err) { 
-        console.error(err);
-        alert("분석 실패: " + err.message); 
-    } finally { 
-        setIsProcessing(false); 
-    }
-};
+        } catch (err) {
+            console.error(err);
+            alert("분석 실패: " + err.message);
+        } finally {
+            setIsProcessing(false);
+        }
+    };
 
     // --- Math Rendering Helper (Improved) ---
     const renderMathText = (slide, textBlock, startX, startY, width, lineHeight = 0.4) => {
@@ -515,33 +555,89 @@ const App = () => {
         } catch (err) { console.error(err); alert(`PPT 생성 오류: ${err.message}`); }
     };
 
-    const handleBuilderImage = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        setBuilderInputImage(URL.createObjectURL(file));
-        setIsProcessing(true);
-        try {
-            const base64 = await new Promise(r => {
-                const reader = new FileReader();
-                reader.onload = () => r(reader.result.split(',')[1]);
-                reader.readAsDataURL(file);
-            });
-            const template = templates.find(t => t.id === selectedTemplateId);
-            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: "Extract JSON for build." }, { inlineData: { mimeType: "image/png", data: base64 } }] }],
-                    systemInstruction: { parts: [{ text: BUILDER_SYSTEM_PROMPT(template?.type === 'together') }] },
-                    generationConfig: { responseMimeType: "application/json" }
-                })
-            });
-            const data = await res.json();
-            setExtractedBuildData(JSON.parse(data.candidates[0].content.parts[0].text));
-        } catch (e) { alert("분석 에러: " + e.message); }
-        finally { setIsProcessing(false); }
+    const addPage = () => {
+        if (buildPages.length >= 4) return;
+        const newPages = [...buildPages, { id: buildPages.length + 1, image: null, data: null }];
+        setBuildPages(newPages);
+        setActivePageIndex(newPages.length - 1);
     };
 
-    
+    const removePage = (index) => {
+        if (buildPages.length <= 1) return;
+        const newPages = buildPages.filter((_, i) => i !== index).map((p, i) => ({ ...p, id: i + 1 }));
+        setBuildPages(newPages);
+        setActivePageIndex(Math.max(0, index - 1));
+    };
+
+    const updateCurrentPageData = (newData) => {
+        const newPages = [...buildPages];
+        newPages[activePageIndex].data = newData;
+        setBuildPages(newPages);
+    };
+
+    const analyzeImage = async (file) => {
+        const base64 = await new Promise(r => {
+            const reader = new FileReader();
+            reader.onload = () => r(reader.result.split(',')[1]);
+            reader.readAsDataURL(file);
+        });
+        const template = templates.find(t => t.id === selectedTemplateId);
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: "Extract JSON for build." }, { inlineData: { mimeType: "image/png", data: base64 } }] }],
+                systemInstruction: { parts: [{ text: BUILDER_SYSTEM_PROMPT(template?.typeKey?.startsWith('together')) }] },
+                generationConfig: { responseMimeType: "application/json" }
+            })
+        });
+        const data = await res.json();
+        return JSON.parse(data.candidates[0].content.parts[0].text);
+    };
+
+    const handleBuilderImage = async (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+
+        setIsProcessing(true);
+        try {
+            let currentPages = [...buildPages];
+            let targetIndex = activePageIndex;
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+
+                // Add page if needed
+                if (targetIndex >= currentPages.length) {
+                    if (currentPages.length >= 4) break;
+                    currentPages.push({ id: currentPages.length + 1, image: null, data: null });
+                }
+
+                // Preview
+                currentPages[targetIndex] = {
+                    ...currentPages[targetIndex],
+                    image: URL.createObjectURL(file),
+                };
+                setBuildPages([...currentPages]);
+
+                // Analyze
+                const extracted = await analyzeImage(file);
+                currentPages[targetIndex].data = extracted;
+                setBuildPages([...currentPages]);
+
+                targetIndex++;
+            }
+            // Move active index to the last processed page
+            setActivePageIndex(targetIndex - 1);
+
+        } catch (e) {
+            alert("분석 에러: " + e.message);
+        } finally {
+            setIsProcessing(false);
+            e.target.value = '';
+        }
+    };
+
+
 
     const uploadTemplate = async (e) => {
         const file = e.target.files[0];
@@ -562,8 +658,8 @@ const App = () => {
 
             await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'templates', templateId), {
                 name: file.name.replace('.zip', ''),
-                type: file.name.includes('함께') ? 'together' : 'question',
-                createdAt: Date.now()
+                createdAt: Date.now(),
+                typeKey: selectedTypeKey,
             });
 
             for (let i = 0; i < chunkCount; i++) {
@@ -599,7 +695,7 @@ const App = () => {
             <aside className="w-64 bg-white border-r border-slate-200 p-6 flex flex-col gap-8 z-20">
                 <div className="flex items-center gap-3 px-2">
                     <div className="bg-indigo-600 p-2.5 rounded-2xl text-white shadow-xl shadow-indigo-100"><Layout size={26} /></div>
-                    <h1 className="text-xl font-black tracking-tighter text-indigo-600 uppercase">EduPro V5</h1>
+                    <h1 className="text-xl font-black tracking-tighter text-indigo-600 uppercase">Edu Builder</h1>
                 </div>
                 <nav className="flex flex-col gap-2 flex-1">
                     <button onClick={() => setActiveTab('analysis')} className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'analysis' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-100'}`}><BookOpen size={20} /><span className="font-bold text-sm">교과서 분석</span></button>
@@ -735,78 +831,163 @@ const App = () => {
                         <div className="grid grid-cols-3 gap-12 animate-in fade-in duration-500">
                             <div className="col-span-1 space-y-8">
                                 <div className="bg-white p-10 rounded-[3.5rem] border border-slate-200 shadow-sm">
-                                    
+
                                     <label className="text-xs font-black text-slate-400 uppercase mb-5 block ml-2 tracking-widest">
-                                    1. Select Type
+                                        1. Select Type
                                     </label>
                                     <select
-                                    value={selectedTypeKey}
-                                    onChange={(e) => {
-                                        setSelectedTypeKey(e.target.value);
-                                        setSelectedTemplateId(""); // 유형 바꾸면 템플릿 선택 초기화
-                                    }}
-                                    className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-3xl font-black outline-none focus:border-indigo-300 transition-all appearance-none"
+                                        value={selectedTypeKey}
+                                        onChange={(e) => {
+                                            setSelectedTypeKey(e.target.value);
+                                            setSelectedTemplateId(""); // 유형 바꾸면 템플릿 선택 초기화
+                                        }}
+                                        className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-3xl font-black outline-none focus:border-indigo-300 transition-all appearance-none"
                                     >
-                                    {TYPE_DEFS.map((t) => (
-                                        <option key={t.typeKey} value={t.typeKey}>
-                                        {t.label}
-                                        </option>
-                                    ))}
+                                        {TYPE_DEFS.map((t) => (
+                                            <option key={t.typeKey} value={t.typeKey}>
+                                                {t.label}
+                                            </option>
+                                        ))}
                                     </select>
 
                                     <label className="text-xs font-black text-slate-400 uppercase mt-10 mb-5 block ml-2 tracking-widest">
-                                    2. Select Template
+                                        2. Select Template
                                     </label>
 
                                     {filteredTemplates.length === 0 ? (
-                                    <div className="w-full p-5 bg-amber-50 border-2 border-amber-200 rounded-3xl font-black text-amber-700">
-                                        이 유형에 연결된 템플릿이 없습니다. 템플릿 zip을 업로드해야 합니다.
-                                    </div>
+                                        <div className="w-full p-5 bg-amber-50 border-2 border-amber-200 rounded-3xl font-black text-amber-700">
+                                            이 유형에 연결된 템플릿이 없습니다. 템플릿 zip을 업로드해야 합니다.
+                                        </div>
                                     ) : (
-                                    <select
-                                        value={selectedTemplateId || filteredTemplates[0].id}
-                                        onChange={(e) => setSelectedTemplateId(e.target.value)}
-                                        className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-3xl font-black outline-none focus:border-indigo-300 transition-all appearance-none"
-                                    >
-                                        {filteredTemplates.map((t) => (
-                                        <option key={t.id} value={t.id}>
-                                            {t.name}
-                                        </option>
-                                        ))}
-                                    </select>
+                                        <select
+                                            value={selectedTemplateId || filteredTemplates[0].id}
+                                            onChange={(e) => setSelectedTemplateId(e.target.value)}
+                                            className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-3xl font-black outline-none focus:border-indigo-300 transition-all appearance-none"
+                                        >
+                                            {filteredTemplates.map((t) => (
+                                                <option key={t.id} value={t.id}>
+                                                    {t.name}
+                                                </option>
+                                            ))}
+                                        </select>
                                     )}
 
 
-                                    
-                                    <label className="text-xs font-black text-slate-400 uppercase mt-10 mb-5 block ml-2 tracking-widest">2. Upload Builder Image</label>
+
+                                    <label className="text-xs font-black text-slate-400 uppercase mt-10 mb-5 block ml-2 tracking-widest">2. Build Pages</label>
+
+                                    <div className="flex gap-2 mb-4 flex-wrap">
+                                        {buildPages.map((p, idx) => (
+                                            <button
+                                                key={p.id}
+                                                onClick={() => setActivePageIndex(idx)}
+                                                className={`px-4 py-2 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${activePageIndex === idx ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                                            >
+                                                Page {p.id}
+                                                {buildPages.length > 1 && (
+                                                    <span onClick={(e) => { e.stopPropagation(); removePage(idx); }} className="hover:text-red-300"><X size={12} /></span>
+                                                )}
+                                            </button>
+                                        ))}
+                                        {buildPages.length < 4 && (
+                                            <button onClick={addPage} className="px-4 py-2 rounded-xl font-bold text-sm bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all flex items-center gap-1">
+                                                <Plus size={14} /> Add
+                                            </button>
+                                        )}
+                                    </div>
+
                                     <div onClick={() => templateZipInputRef.current.click()} className="aspect-[4/5] bg-slate-50 border-4 border-dashed border-slate-100 rounded-[3rem] flex items-center justify-center overflow-hidden cursor-pointer group hover:bg-indigo-50 hover:border-indigo-200 transition-all relative">
-                                        <input ref={templateZipInputRef} type="file" accept="image/*" onChange={handleBuilderImage} className="hidden" />
-                                        {builderInputImage ? <img src={builderInputImage} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-200 group-hover:scale-110 transition-transform" size={64} />}
+                                        <input ref={templateZipInputRef} type="file" multiple accept="image/*" onChange={handleBuilderImage} className="hidden" />
+                                        {buildPages[activePageIndex]?.image ? <img src={buildPages[activePageIndex].image} className="w-full h-full object-cover" /> : <div className="text-center text-slate-300"><ImageIcon className="mx-auto mb-2" size={48} /><span className="text-xs font-bold">Upload Image(s)</span></div>}
                                     </div>
                                 </div>
                             </div>
                             <div className="col-span-2">
                                 <div className="bg-white p-12 rounded-[4.5rem] border border-slate-200 shadow-sm min-h-[600px] flex flex-col relative overflow-hidden">
-                                    {extractedBuildData ? (
+                                    {buildPages[activePageIndex]?.data ? (
                                         <div className="w-full space-y-10 animate-in slide-in-from-right-10 duration-500">
                                             <div className="flex items-center justify-between">
-                                                <h3 className="text-3xl font-black tracking-tight">Production Data Review</h3>
+                                                <h3 className="text-3xl font-black tracking-tight">Page {buildPages[activePageIndex].id} Data</h3>
                                                 <span className="bg-emerald-100 text-emerald-600 px-4 py-1.5 rounded-2xl text-[10px] font-black uppercase border border-emerald-200">Engine Ready</span>
                                             </div>
                                             <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100 space-y-4">
                                                 <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block ml-2">Extracted Main Question</label>
-                                                <input className="w-full bg-white p-4 rounded-2xl border border-slate-200 font-black text-lg" value={extractedBuildData.mainQuestion} onChange={e => setExtractedBuildData({ ...extractedBuildData, mainQuestion: e.target.value })} />
+                                                <input className="w-full bg-white p-4 rounded-2xl border border-slate-200 font-black text-lg" value={buildPages[activePageIndex].data.mainQuestion} onChange={e => updateCurrentPageData({ ...buildPages[activePageIndex].data, mainQuestion: e.target.value })} />
+
+                                                <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block ml-2 mt-2">Guide Text</label>
+                                                <input className="w-full bg-white p-4 rounded-2xl border border-slate-200 font-bold text-sm text-slate-600" value={buildPages[activePageIndex].data.guideText || ""} onChange={e => updateCurrentPageData({ ...buildPages[activePageIndex].data, guideText: e.target.value })} />
                                             </div>
                                             <div className="space-y-6 max-h-[400px] overflow-y-auto pr-4 custom-scrollbar">
-                                                {(extractedBuildData.subQuestions || extractedBuildData.lines || []).map((item, i) => (
-                                                    <div key={i} className="p-8 bg-white border-2 border-slate-100 rounded-[2.5rem] flex items-center gap-6 shadow-sm">
-                                                        <span className="w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center font-black text-sm">{item.label || i + 1}</span>
-                                                        <div className="flex-1 space-y-2">
-                                                            <input className="w-full p-2 text-sm font-bold border-b border-slate-100 focus:border-indigo-400 outline-none" value={item.passage || item.parts?.[0]?.content} />
-                                                            <div className="flex gap-4">
-                                                                <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Answer: {item.answer || item.parts?.find(p => p.type === 'blank')?.correctText}</span>
+                                                {/* Case 1: SubQuestions (General) */}
+                                                {buildPages[activePageIndex].data.subQuestions && buildPages[activePageIndex].data.subQuestions.map((item, i) => (
+                                                    <div key={i} className="p-6 bg-white border-2 border-slate-100 rounded-[2.5rem] space-y-4 shadow-sm">
+                                                        <div className="flex items-center gap-4">
+                                                            <span className="w-8 h-8 bg-slate-900 text-white rounded-lg flex items-center justify-center font-black text-xs">{item.label || i + 1}</span>
+                                                            <div className="flex-1">
+                                                                <label className="text-[10px] font-bold text-slate-400 uppercase">Passage</label>
+                                                                <textarea rows={2} className="w-full p-2 text-sm font-bold border-b border-slate-100 focus:border-indigo-400 outline-none resize-none" value={item.passage || ""} onChange={(e) => {
+                                                                    const newSub = [...buildPages[activePageIndex].data.subQuestions];
+                                                                    newSub[i].passage = e.target.value;
+                                                                    updateCurrentPageData({ ...buildPages[activePageIndex].data, subQuestions: newSub });
+                                                                }} />
                                                             </div>
                                                         </div>
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                            <div>
+                                                                <label className="text-[10px] font-bold text-emerald-500 uppercase">Answer</label>
+                                                                <input className="w-full p-2 bg-emerald-50 rounded-xl text-xs font-bold text-emerald-700 outline-none" value={item.answer || ""} onChange={(e) => {
+                                                                    const newSub = [...buildPages[activePageIndex].data.subQuestions];
+                                                                    newSub[i].answer = e.target.value;
+                                                                    updateCurrentPageData({ ...buildPages[activePageIndex].data, subQuestions: newSub });
+                                                                }} />
+                                                            </div>
+                                                            <div>
+                                                                <label className="text-[10px] font-bold text-indigo-400 uppercase">Explanation</label>
+                                                                <input className="w-full p-2 bg-indigo-50 rounded-xl text-xs font-bold text-indigo-700 outline-none" value={item.explanation || ""} onChange={(e) => {
+                                                                    const newSub = [...buildPages[activePageIndex].data.subQuestions];
+                                                                    newSub[i].explanation = e.target.value;
+                                                                    updateCurrentPageData({ ...buildPages[activePageIndex].data, subQuestions: newSub });
+                                                                }} />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+
+                                                {/* Case 2: Lines (Hello Together) */}
+                                                {buildPages[activePageIndex].data.lines && buildPages[activePageIndex].data.lines.map((line, i) => (
+                                                    <div key={i} className="p-6 bg-white border-2 border-amber-100 rounded-[2.5rem] space-y-4 shadow-sm">
+                                                        <div className="flex items-center gap-4 mb-2">
+                                                            <span className="w-8 h-8 bg-amber-500 text-white rounded-lg flex items-center justify-center font-black text-xs">{line.label || "L" + (i + 1)}</span>
+                                                            <span className="text-xs font-bold text-slate-400 uppercase">Line {i + 1}</span>
+                                                        </div>
+                                                        {line.parts && line.parts.map((part, pIdx) => (
+                                                            <div key={pIdx} className="pl-4 border-l-2 border-slate-100 ml-2">
+                                                                {part.type === 'text' && (
+                                                                    <div className="mb-2">
+                                                                        <label className="text-[10px] font-bold text-slate-400 uppercase">Text Part</label>
+                                                                        <textarea rows={1} className="w-full p-2 text-sm border-b border-slate-100 outline-none resize-none" value={part.content} onChange={(e) => {
+                                                                            const newLines = [...buildPages[activePageIndex].data.lines];
+                                                                            newLines[i].parts[pIdx].content = e.target.value;
+                                                                            updateCurrentPageData({ ...buildPages[activePageIndex].data, lines: newLines });
+                                                                        }} />
+                                                                    </div>
+                                                                )}
+                                                                {part.type === 'blank' && (
+                                                                    <div className="bg-slate-50 p-3 rounded-xl space-y-2">
+                                                                        <div className="flex justify-between">
+                                                                            <label className="text-[10px] font-bold text-blue-500 uppercase">Blank (Index: {part.correctIndex})</label>
+                                                                        </div>
+                                                                        <div className="flex gap-2 flex-wrap">
+                                                                            {part.options && part.options.map((opt, oIdx) => (
+                                                                                <span key={oIdx} className={`px-2 py-1 rounded-lg text-xs font-bold ${oIdx + 1 === part.correctIndex ? 'bg-blue-500 text-white' : 'bg-white border border-slate-200 text-slate-500'}`}>
+                                                                                    {opt}
+                                                                                </span>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ))}
                                                     </div>
                                                 ))}
                                             </div>

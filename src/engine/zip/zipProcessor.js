@@ -1,5 +1,14 @@
 /* eslint-disable */
 import { collection, getDocs } from "firebase/firestore";
+import sanitizeLaTeX from "../utils/sanitize";
+import togetherSelect from "./handlers/together/select";
+import questionMathinput from "./handlers/question/mathinput"; // 이미 쓰고 있으면 그걸로
+// ...추가될 유형들 계속
+
+const ENGINE_BY_TYPEKEY = {
+  [togetherSelect.typeKey]: togetherSelect,
+  [questionMathinput.typeKey]: questionMathinput,
+};
 
 /**
  * App.js에서 이렇게 호출해야 함:
@@ -12,75 +21,14 @@ import { collection, getDocs } from "firebase/firestore";
 export async function processAndDownloadZip({
   templates,
   selectedTemplateId,
-  extractedBuildData,
+  buildPages, // Not extractedBuildData
   setStatusMessage,
   setIsProcessing,
-  removePagination,
+  removePagination, // can be deprecated or auto-used
   db,
   appId,
 }) {
-  console.log("processAndDownloadZip called");
-
-  // --------------------
-  // helpers
-  // --------------------
-  const sanitizeLaTeX = (str) => {
-    if (!str) return "";
-    let sanitized = str;
-
-    // $...$ -> \(...\)
-    sanitized = sanitized.replace(/\$(.*?)\$/g, "\\($1\\)");
-
-    // \ ^ _ 있는데 \( \) 없으면 감싸기
-    if (
-      (sanitized.includes("\\") || sanitized.includes("^") || sanitized.includes("_")) &&
-      !sanitized.includes("\\(")
-    ) {
-      sanitized = `\\(${sanitized}\\)`;
-    }
-
-    // 중복된 \( \( 제거
-    sanitized = sanitized.replace(/\\\((\\\(.*?\\\))\\\)/g, "$1");
-    return sanitized;
-  };
-
-  // mathinput act.js(dap1_array...) 패치
-  const patchMathInputActJs = (actText, subQuestions) => {
-    const esc = (s) => String(s ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-
-    const answers = (subQuestions || []).map((sq) => sq.answer ?? "");
-    const n = Math.max(answers.length, 0);
-
-    // 기존 dap*_array 선언 제거
-    let out = actText.replace(/var\s+dap\d+_array\s*=\s*\[[^\]]*\]\s*;\s*\r?\n/g, "");
-
-    // 맨 앞(첫 줄 다음)에 dap1_array.. 삽입 (multiQuiz 선언 바로 아래에 들어가게 됨)
-    const firstNL = out.indexOf("\n");
-    const dapLines = [];
-    for (let i = 0; i < n; i++) {
-      dapLines.push(`var dap${i + 1}_array = ["${esc(answers[i])}"];`);
-    }
-    const dapBlock = dapLines.join("\n") + "\n";
-
-    if (firstNL !== -1) out = out.slice(0, firstNL + 1) + dapBlock + out.slice(firstNL + 1);
-    else out = dapBlock + out;
-
-    // q_len 교체
-    out = out.replace(/var\s+q_len\s*=\s*\d+\s*;[^\n]*\r?\n/, `var q_len = ${n};//확인버튼 개수\n`);
-
-    // qArange 교체: [[1],[2],...]
-    const qArange = "[" + Array.from({ length: n }, (_, i) => `[${i + 1}]`).join(", ") + "]";
-    out = out.replace(
-      /var\s+qArange\s*=\s*\[[^\]]*\]\s*;[^\n]*\r?\n/,
-      `var qArange = ${qArange};// 각 확인버튼에 배정된 문제 번호\n`
-    );
-
-    // dap_array 교체
-    const dapArrayExpr = `[].concat(${Array.from({ length: n }, (_, i) => `dap${i + 1}_array`).join(", ")})`;
-    out = out.replace(/var\s+dap_array\s*=\s*[^;]*;[^\n]*\r?\n/, `var dap_array = ${dapArrayExpr};//전체 정답 배열\n`);
-
-    return out;
-  };
+  console.log("processAndDownloadZip called", buildPages);
 
   // --------------------
   // guards
@@ -97,14 +45,18 @@ export async function processAndDownloadZip({
     setStatusMessage({ title: "알림", message: "템플릿이 선택되지 않았습니다.", type: "error" });
     return;
   }
-  if (!extractedBuildData) {
+
+  // 유효한 데이터가 있는 페이지 필터링
+  const validPages = (buildPages || []).filter(p => p.data);
+  if (validPages.length === 0) {
     setStatusMessage({
       title: "알림",
-      message: "AI 분석 데이터가 없습니다. 이미지를 업로드하고 분석을 기다려주세요.",
+      message: "유효한 데이터가 있는 페이지가 없습니다. 이미지를 업로드하고 분석을 진행해주세요.",
       type: "error",
     });
     return;
   }
+  const totalPage = validPages.length;
 
   setIsProcessing(true);
 
@@ -112,7 +64,11 @@ export async function processAndDownloadZip({
     // 1) 템플릿 메타
     const templateMeta = templates.find((t) => t.id === selectedTemplateId);
     if (!templateMeta) throw new Error("템플릿 메타데이터를 찾을 수 없습니다.");
-    const isTogether = templateMeta.type === "together";
+    const typeKey = templateMeta.typeKey;
+    const engine = ENGINE_BY_TYPEKEY[typeKey];
+
+    if (!typeKey) throw new Error("템플릿에 typeKey가 없습니다.");
+    if (!engine) throw new Error(`엔진이 없습니다: ${typeKey}`);
 
     // 2) Firestore chunks에서 zip 복원
     const chunksRef = collection(
@@ -153,200 +109,134 @@ export async function processAndDownloadZip({
     const zip = new window.JSZip();
     const loadedZip = await zip.loadAsync(combined);
 
-    const parser = new DOMParser();
-    const serializer = new XMLSerializer();
+    // * Base Templates 확보: view01.html, act01.js 등
+    // 템플릿에 view02 등 없는 경우를 대비해 01번 파일을 기준으로 복제 준비
+    let view01Path = null;
+    let act01Path = null;
 
-    const promises = [];
+    // zip 내 파일 경로 탐색 (최상위가 아닐 수 있음)
+    Object.keys(loadedZip.files).forEach(path => {
+      if (path.endsWith("view01.html")) view01Path = path;
+      if (path.endsWith("act01.js")) act01Path = path;
+    });
+
+    if (!view01Path) throw new Error("view01.html이 템플릿에 없습니다.");
+
+    const baseHtmlContent = await loadedZip.file(view01Path)?.async("string");
+    const baseJsContent = act01Path ? await loadedZip.file(act01Path)?.async("string") : "";
+
+    // 파일 삭제 목록
     const filesToRemove = [];
 
-    loadedZip.forEach((path, file) => {
-      if (path.startsWith("common1/")) return;
-
-      // pagination 제거 옵션
-      if (removePagination) {
-        const fileName = path.split("/").pop();
-        if (
-          (fileName.startsWith("view") && fileName.endsWith(".html") && !fileName.includes("01")) ||
-          (fileName.startsWith("act") && fileName.endsWith(".js") && (fileName.includes("02") || fileName.includes("2")))
-        ) {
-          filesToRemove.push(path);
-          return;
+    // 기존 템플릿에 있는 viewXX.html, actXX.js 중 totalPage를 초과하는 것들은 삭제 대상
+    loadedZip.forEach((path) => {
+      const fName = path.split('/').pop();
+      if (fName.startsWith("view") && fName.endsWith(".html")) {
+        const m = fName.match(/view(\d+)\.html/);
+        if (m) {
+          const idx = parseInt(m[1]);
+          if (idx > totalPage) filesToRemove.push(path);
         }
       }
+      if (fName.startsWith("act") && fName.endsWith(".js") && fName.includes("0")) { // act01.js check
+        const m = fName.match(/act(\d+)\.js/);
+        if (m) {
+          const idx = parseInt(m[1]);
+          if (idx > totalPage) filesToRemove.push(path);
+        }
+      }
+    });
 
-      // --------------------
-      // HTML(view*.html)
-      // --------------------
-      if (path.endsWith(".html") && path.includes("view")) {
-        promises.push(
-          file.async("string").then((content) => {
-            const doc = parser.parseFromString(content, "text/html");
+    // 경로 접두어 (예: "Template/")
+    const pathPrefix = view01Path.substring(0, view01Path.lastIndexOf("view01.html"));
 
-            // pagination 제거(view 내부)
-            if (removePagination) doc.querySelector(".pagination")?.remove();
+    const promises = [];
 
-            // guideText
-            const stxt = doc.querySelector(".stxt");
-            if (stxt && extractedBuildData.guideText) {
-              const gt = extractedBuildData.guideText.trim();
-              stxt.textContent = gt.startsWith("▷") ? gt : `▷ ${gt}`;
-            }
+    // 4) 각 페이지별 파일 생성/수정
+    for (let i = 0; i < totalPage; i++) {
+      const pageNum = i + 1; // 1, 2, 3, 4
+      const pNumStr = String(pageNum).padStart(2, '0'); // "01", "02"
+      const pageData = validPages[i].data;
+      const normalizedData = engine.normalize(pageData);
 
-            // mainQuestion
-            const qp = doc.querySelector(".q > p");
-            if (qp && extractedBuildData.mainQuestion) {
-              if (qp.childNodes[0]?.nodeType === 3) qp.childNodes[0].textContent = extractedBuildData.mainQuestion;
-            }
+      // --- HTML ---
+      const htmlFilename = `view${pNumStr}.html`;
+      // Try to find existing file
+      const foundHtmlPath = Object.keys(loadedZip.files).find(k => k.endsWith(htmlFilename));
 
-            // content injection
-            if (isTogether && extractedBuildData.lines) {
-              // together 로직 (현재 zipProcessor.js에 있는 그대로 두는 게 안전)
-              const container = doc.querySelector('div[translate="no"]');
-              if (container) {
-                const existingLines = Array.from(container.querySelectorAll(".txt1"));
-                const ml50Base = existingLines.find((l) => l.classList.contains("ml50"))?.cloneNode(true);
-                const ml100Base = existingLines.find((l) => l.classList.contains("ml100"))?.cloneNode(true);
-                const defaultBase = existingLines[0]?.cloneNode(true);
+      // If found, use it. If not, construct path using prefix.
+      const targetHtmlPath = foundHtmlPath || (pathPrefix + htmlFilename);
 
-                container.innerHTML = "";
-                let bId = 0;
+      // 기존 파일이 있으면 쓰고, 없으면 view01에서 복제
+      let htmlContent = foundHtmlPath ? await loadedZip.file(foundHtmlPath)?.async("string") : null;
+      if (!htmlContent) htmlContent = baseHtmlContent;
 
-                extractedBuildData.lines.forEach((line) => {
-                  const newLine = (line.label ? (ml50Base || defaultBase) : (ml100Base || defaultBase)).cloneNode(true);
-                  newLine.innerHTML = "";
-                  newLine.className = line.label ? "txt1 mb40 ml50" : "txt1 mb40 ml100 flex-row ai-c";
+      // update HTML
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlContent, "text/html");
 
-                  if (line.label) {
-                    const lSpan = doc.createElement("span");
-                    lSpan.textContent = line.label;
-                    newLine.appendChild(lSpan);
-                  }
+      // 1장일 때 페이지네이션 삭제
+      if (totalPage === 1) {
+        const pagers = doc.querySelectorAll('.pager, .pagination, .page-nav'); // 통상적인 클래스명
+        pagers.forEach(el => el.remove());
 
-                  if (line.parts) {
-                    line.parts.forEach((part) => {
-                      if (part.type === "text") {
-                        const tSpan = doc.createElement("span");
-                        if (!line.label) tSpan.className = "ml10";
-                        tSpan.innerHTML = sanitizeLaTeX(part.content);
-                        newLine.appendChild(tSpan);
-                      } else if (part.type === "blank") {
-                        bId++;
-                        const bSpan = doc.createElement("span");
-                        bSpan.className = "btn-blank-wrap ml10";
-
-                        const options = part.options || [];
-                        const correctIdx = (parseInt(part.correctIndex) || 1) - 1;
-                        const correctValue = options[correctIdx] || "";
-                        const finalCorrect = sanitizeLaTeX(correctValue);
-
-                        bSpan.innerHTML = `
-<input type="checkbox" class="check-blank" id="check-blank${bId}">
-<label for="check-blank${bId}" class="btn-blank">빈칸</label>
-<ul class="select-wrap bottom">
-  ${options.map((opt) => `<li><button type="button" class="btn-select">${sanitizeLaTeX(opt)}</button></li>`).join("")}
-</ul>
-<span class="write-txt" style="width: ${part.width || 120}px"></span>
-<span class="correct">${finalCorrect}</span>
-`;
-                        newLine.appendChild(bSpan);
-                      }
-                    });
-                  }
-
-                  container.appendChild(newLine);
-                });
-              }
-            } else if (extractedBuildData.subQuestions) {
-              // question_mathinput 로직
-              const rowTemplate = doc.querySelector(".flex-row.ai-s.jc-sb");
-              if (rowTemplate) {
-                const parent = rowTemplate.parentNode;
-                // 기존 문항 지우기
-                const rows = Array.from(parent.querySelectorAll(".flex-row.ai-s.jc-sb")).filter((r) => r.querySelector(".a2"));
-                rows.forEach((r) => r.remove());
-                
-                // AI가 준 문항 배열 하나씩 처리
-                extractedBuildData.subQuestions.forEach((sq, i) => {
-                  const newRow = rowTemplate.cloneNode(true);
-                  const label = newRow.querySelector(".a2 label");
-                  const p = newRow.querySelector(".a2 p");
-                  const inp = newRow.querySelector(".inp-wrap > div");
-
-                  const solveBtn = newRow.querySelector(".btn-solve");
-                  if (solveBtn) solveBtn.setAttribute("aria-haspopup", "dialog");
-
-                  if (label) label.textContent = sq.label;
-                  if (p) p.innerHTML = sanitizeLaTeX(sq.passage);
-
-                  if (inp) {
-                    inp.classList.forEach((c) => {
-                      if (c.startsWith("w")) inp.classList.remove(c);
-                    });
-                    inp.classList.add(sq.inputWidth || "w200");
-                  }
-
-                  if (i !== extractedBuildData.subQuestions.length - 1) newRow.classList.add("mb80");
-                  parent.appendChild(newRow);
-                });
-              }
-
-              // solution popup
-              const solPopups = doc.querySelectorAll(".pop.solution");
-              if (solPopups.length > 0) {
-                extractedBuildData.subQuestions.forEach((sq, idx) => {
-                  if (solPopups[idx]) {
-                    const cont = solPopups[idx].querySelector(".cont");
-                    if (cont) {
-                      cont.innerHTML = sanitizeLaTeX(sq.explanation);
-                      cont.setAttribute("aria-label", "");
-                    }
-                  }
-                });
-              }
-            }
-
-            loadedZip.file(path, serializer.serializeToString(doc));
-          })
-        );
+        // footer > .btn-page-prev, .btn-page-next 등
+        doc.querySelectorAll('.btn-page-prev, .btn-page-next').forEach(el => el.remove());
       }
 
-      // --------------------
-      // JS(act*.js)
-      // --------------------
-      // 함께풀기
-      if (path.endsWith(".js") && path.includes("act")) {
-        promises.push(
-          file.async("string").then((content) => {
-            let js = content;
+      // 엔진 주입
+      engine.injectHtmlPage({
+        doc,
+        manifest: templateMeta.manifest || {}, // TODO: manifest도 페이지별로 달라야 하나? 일단 공통 사용
+        data: normalizedData,
+        pageIndex: i,
+      });
 
-            if (isTogether && extractedBuildData.lines) {
-              // together: dap_array (index)
-              const daps = [];
-              extractedBuildData.lines.forEach((l) =>
-                l.parts?.filter((p) => p.type === "blank").forEach((p) => daps.push((p.correctIndex || 1) - 1))
-              );
-              js = js.replace(/var\s+dap_array\s*=\s*\[[\s\S]*?\]\s*;/g, `var dap_array = ${JSON.stringify(daps)};`);
-              js = js.replace(/var\s+q_len\s*=\s*dap_array\.length\s*;/g, `var q_len = ${daps.length};`);
-            } 
-            // 문제 mathinput
-            else if (extractedBuildData.subQuestions) {
-              // ✅ mathinput: dap1_array 구조 패치 (act.js가 이 구조임) :contentReference[oaicite:4]{index=4}
-              if (/var\s+dap1_array\s*=/.test(js) || /var\s+qArange\s*=/.test(js)) {
-                js = patchMathInputActJs(js, extractedBuildData.subQuestions);
-              } else {
-                // fallback(다른 템플릿)
-                const daps = extractedBuildData.subQuestions.map((s) => s.answer);
-                js = js.replace(
-                  /(const|var|let)\s+answers\s*=\s*\[[\s\S]*?\]\s*;/g,
-                  `$1 answers = ${JSON.stringify(daps)};`
-                );
-              }
-            }
+      // Save HTML
+      const serializer = new XMLSerializer();
+      promises.push(Promise.resolve().then(() => loadedZip.file(targetHtmlPath, serializer.serializeToString(doc))));
 
-            loadedZip.file(path, js);
-          })
-        );
+      // --- JS ---
+      // JS는 act01.js, act02.js ... 매핑
+      // (주의: together.select는 JS 패치가 거의 없지만 question.mathinput은 있음)
+      let jsPath = `act${pNumStr}.js`;
+      // 경로 찾기 (폴더 구조가 있을 수 있음) - 여기서는 단순화.
+      const foundJsPath = Object.keys(loadedZip.files).find(k => k.endsWith(jsPath));
+
+      let jsContent = foundJsPath ? await loadedZip.file(foundJsPath)?.async("string") : null;
+      if (!jsContent && baseJsContent) jsContent = baseJsContent; // 복제
+
+      if (jsContent) {
+        const patchedJs = engine.patchActJs({
+          actJsText: jsContent,
+          data: normalizedData,
+          pageIndex: i
+        });
+
+        // 저장 위치: foundJsPath가 있으면 거기, 없으면 act02.js 등으로 루트(혹은 view랑 같은 폴더) 생성
+        // 템플릿 구조를 따라가기 위해 act01.js가 있던 폴더를 찾음
+        let targetJsPath = foundJsPath || jsPath;
+        if (!foundJsPath && baseJsContent) {
+          // act01.js의 위치를 찾아 그 폴더에 act02.js 생성
+          const baseJsFile = Object.keys(loadedZip.files).find(k => k.endsWith("act01.js"));
+          if (baseJsFile) {
+            targetJsPath = baseJsFile.replace("act01.js", jsPath);
+          }
+        }
+        promises.push(Promise.resolve().then(() => loadedZip.file(targetJsPath, patchedJs)));
       }
+    }
+
+    // 5) view_pageinfo.js 수정 (총 페이지 수)
+    const pageInfoFiles = Object.keys(loadedZip.files).filter(k => k.endsWith("view_pageinfo.js"));
+    pageInfoFiles.forEach(path => {
+      promises.push(
+        loadedZip.file(path).async("string").then(content => {
+          // var totalPage = 4;
+          const updated = content.replace(/var\s+totalPage\s*=\s*\d+;/, `var totalPage = ${totalPage};`);
+          loadedZip.file(path, updated);
+        })
+      );
     });
 
     await Promise.all(promises);

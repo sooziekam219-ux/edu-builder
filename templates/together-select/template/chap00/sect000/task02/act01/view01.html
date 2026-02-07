@@ -1,0 +1,129 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>함께 풀기 1</title>
+    <link rel="stylesheet" type="text/css" href="../../../../common1/style/common.css">
+
+    <style>
+      .btn-blank-wrap .correct{top: -38px;}
+
+      /* 번역 */
+      :root :not(:lang(ko)) {--fs5: 38px;}
+      :root :not(:lang(ko)) {--fs6: 35px;}
+    </style>
+</head>
+<body>
+    <div class="wrap together">
+        <header>
+            <h1><img src="images/tit-together1.png" alt="함께 풀기 1" class="lang-image"></h1>
+        </header>
+        <main>
+            <span class="stxt mb60">▷ 빈칸을 눌러 제시된 보기에서 정답을 선택하세요.</span>
+            <div translate="no">
+                <div class="txt1 mb40 ml50">
+                  <span>(1)</span>
+                    <span aria-label="마이너스 사 에이 곱하기 오 비">\(-4a \times 5b\)</span>
+                </div>
+
+                <div class="txt1 mb40 ml100 flex-row ai-c">
+                    <span aria-label="는 마이너스 사 곱하기 에이 곱하기">\(= -4 \times a \times\)</span>
+                    <span class="btn-blank-wrap">
+                        <input type="checkbox" class="check-blank" id="check-blank1">
+                        <label for="check-blank1" class="btn-blank" aria-label="빈칸을 눌러 정답을 선택하세요.">빈칸</label>
+                        <ul class="select-wrap bottom">
+                          <li>
+                            <button type="button" class="btn-select">\( -5 \)</button>
+                          </li>
+                          <li>
+                            <button type="button" class="btn-select">5</button>
+                          </li>
+                        </ul>
+                        <span class="write-txt" style="width: 100px"></span>
+                        <span class="correct">5</span>
+                        <!-- show : 저장버튼 클릭시 오답일 때 추가 -->
+                      </span>
+                    <span class="ml10" aria-label="곱하기 비">\(\times b\)</span>
+                </div>
+
+                <div class="txt1 mb40 ml100 flex-row ai-c">
+                    <span aria-label="마이너스 사 곱하기">\(=(-4 \times \)</span>
+                    <span class="btn-blank-wrap">
+                        <input type="checkbox" class="check-blank" id="check-blank2">
+                        <label for="check-blank2" class="btn-blank" aria-label="빈칸을 눌러 정답을 선택하세요.">빈칸</label>
+                        <ul class="select-wrap bottom">
+                          <li>
+                            <button type="button" class="btn-select">\( -5 \)</button>
+                          </li>
+                          <li>
+                            <button type="button" class="btn-select">5</button>
+                          </li>
+                        </ul>
+                        <span class="write-txt" style="width: 100px"></span>
+                        <span class="correct">5</span>
+                        <!-- show : 저장버튼 클릭시 오답일 때 추가 -->
+                      </span>
+                    <span class="ml10" aria-label="곱하기 괄호 열고 에이 곱하기 비 괄호 닫고">\( ) \times (a \times b)\)</span>
+                </div>
+
+                <div class="txt1 mb40 ml100 flex-row ai-c">
+                    <span aria-label="는">\( = \)</span>
+                    <span class="btn-blank-wrap">
+                        <input type="checkbox" class="check-blank" id="check-blank3">
+                        <label for="check-blank3" class="btn-blank" aria-label="빈칸을 눌러 정답을 선택하세요.">빈칸</label>
+                        <ul class="select-wrap bottom">
+                          <li>
+                            <button type="button" class="btn-select">\( -20ab \)</button>
+                          </li>
+                          <li>
+                            <button type="button" class="btn-select">\( 20ab \)</button>
+                          </li>
+                        </ul>
+                        <span class="write-txt" style="width: 145px"></span>
+                        <span class="correct">\( -20ab \)</span>
+                        <!-- show : 저장버튼 클릭시 오답일 때 추가 -->
+                      </span>
+                </div>
+
+            </div>
+            
+            <div class="btn-wrap">
+                <button type="button" class="btn btn-ok">확인</button>
+                <button type="button" class="btn btn-retry">다시 하기</button>
+            </div>
+        </main>
+        <footer>
+            <nav class="pagination">
+                <button class="btn-prev" disabled>이전 페이지</button>
+                <ol role="none">
+                    <li><a href="view01.html" class="active"><span class="wa-hide">현재위치</span>1</a></li>
+                    <li><a href="view02.html">2</a></li>
+                </ol>
+                <button class="btn-next">다음 페이지</button>
+            </nav>
+        </footer>
+
+        <div class="pop feedback" aria-atomic="true" aria-live="polite" role="alert" aria-labelledby="feedbacktext">
+          <button type="button" class="btn-close">닫기</button>
+          <div class="character">
+            <p id="feedbacktext"></p>
+            <div class="btn-wrap">
+              <button type="button" class="btn btn-pop-answer">정답 보기</button>
+              <button type="button" class="btn btn-pop-retry">재도전</button>
+            </div>
+          </div>
+        </div>
+        
+    </div>
+    <script src="../../../../common1/js/jquery-3.7.1.min.js"></script>
+    <script src="../../../../common1/js/jquery-ui.min.js"></script>
+    <script src="../../../../common1/js/jquery.ui.touch-punch.min.js"></script>
+    <script src="js/view_pageinfo.js"></script>
+    <script src="https://aidtcdn.aitextbook.co.kr/content/2025/js/dtext_api_wrapper_opr.js"></script>
+    <script src="../../../../common1/js/common.js"></script>
+    <script src="../../../../common1/js/tex-svg.js"></script>    
+    <script src="js/act.js"></script>
+
+</body>
+</html>

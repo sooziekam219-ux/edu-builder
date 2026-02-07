@@ -1,0 +1,135 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>문제 2</title>
+    <link rel="stylesheet" type="text/css" href="../../../../common1/style/common.css">
+</head>
+
+<body>
+    <div class="wrap question">
+        <header>
+            <h1><img src="images/tit-question2.png" alt="문제 2" class="lang-image"></h1>
+        </header>
+        <main>
+            <div class="q">
+                <p>다음 수의 제곱근을 근호를 사용하여 나타내시오.<br>
+                    <span class="stxt">▷ 빈칸에 들어갈 값을 입력해 보세요.</span>
+                </p>
+            </div>
+            <div class="flex-row ai-s jc-sb mb100">
+                <div class="a2" translate="no">
+                    <label>(3)</label>
+                    <p aria-label="">\(\dfrac{3}{13}\)</p>
+                </div>
+                <div class="flex-col gap0">
+                    <div class="inp-wrap">
+                        <div class="w200">
+                            <button type="button" class="btn-math" aria-label="일번 정답 입력칸"></button>
+                            <p id="QuizInput1" translate="no"></p>
+                            <div class="correct" translate="no"></div>
+                        </div>
+                    </div>
+
+                    <div class="btn-wrap">
+                        <button type="button" class="btn btn-solve" aria-haspopup=”dialog” aria-controls=""
+                            aria-label="일번 풀이">풀이</button>
+                        <button type="button" class="btn btn-retry" aria-label="일번 다시 하기">다시 하기</button>
+                        <button type="button" class="btn btn-ok" aria-label="일번 확인">확인</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex-row ai-s jc-sb mb80">
+                <div class="a2" translate="no">
+                    <label>(4)</label>
+                    <p aria-label="">\(0.4\)</p>
+                </div>
+                <div class="flex-col gap0">
+                    <div class="inp-wrap">
+                        <div class="w200">
+                            <button type="button" class="btn-math" aria-label="이번 정답 입력칸"></button>
+                            <p id="QuizInput2" translate="no"></p>
+                            <div class="correct" translate="no"></div>
+                        </div>
+                    </div>
+
+                    <div class="btn-wrap">
+                        <button type="button" class="btn btn-solve" aria-haspopup=”dialog” aria-controls=""
+                            aria-label="이번 풀이">풀이</button>
+                        <button type="button" class="btn btn-retry" aria-label="이번 다시 하기">다시 하기</button>
+                        <button type="button" class="btn btn-ok" aria-label="이번 확인">확인</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <nav class="pagination">
+                <button class="btn-prev">이전 페이지</button>
+                <ol role="none">
+                    <li><a href="#">1</a></li>
+                    <li><a href="#" class="active"><span class="wa-hide">현재위치</span>2</a></li>
+                </ol>
+                <button class="btn-next" disabled>다음 페이지</button>
+            </nav>
+        </footer>
+        </footer>
+
+        <div class="pop feedback" aria-atomic="true" aria-live="polite" role="alert" aria-labelledby="feedbacktext">
+            <button type="button" class="btn-close">팝업 닫기</button>
+            <div class="character">
+                <p id="feedbacktext"></p>
+                <div class="btn-wrap">
+                    <button type="button" class="btn btn-pop-answer">정답 보기</button>
+                    <button type="button" class="btn btn-pop-retry">재도전</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="pop solution">
+            <div aria-modal="true" role="dialog">
+                <div role="document">
+                    <button type="button" class="btn-close">닫기</button>
+                    <div class="solution-cont">
+                        <span class="num1">(3)</span>
+                        <span class="cont" aria-label="">
+                            \(\dfrac{3}{13}\)의 양의 제곱근은 \(\sqrt{\dfrac{3}{13}}\), 음의 제곱근은 \(-\sqrt{\dfrac{3}{13}}\)이므로
+                            \(\dfrac{3}{13}\)의 제곱근은 \(\pm\sqrt{\dfrac{3}{13}}\)로 나타낸다.
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="pop solution">
+            <div aria-modal="true" role="dialog">
+                <div role="document">
+                    <button type="button" class="btn-close">닫기</button>
+                    <div class="solution-cont">
+                        <span class="num1">(4)</span>
+                        <span class="cont" aria-label="">
+                            \(0.4\)의 양의 제곱근은 \(\sqrt{0.4}\), 음의 제곱근은 \(-\sqrt{0.4}\)이므로 \(0.4\)의 제곱근은 \(\pm\sqrt{0.4}\)로
+                            나타낸다.
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="../../../../common1/js/jquery-3.7.1.min.js"></script>
+    <script src="../../../../common1/js/jquery-ui.min.js"></script>
+    <script src="../../../../common1/js/jquery.ui.touch-punch.min.js"></script>
+    <script src="js/view_pageinfo.js"></script>
+    <script src="https://aidtcdn.aitextbook.co.kr/content/2025/js/dtext_api_wrapper_opr.js"></script>
+    <script src="../../../../common1/js/common.js"></script>
+    <script src="../../../../common1/js/tex-svg.js"></script>
+    <script src="js/act2.js"></script>
+
+</body>
+
+</html>
