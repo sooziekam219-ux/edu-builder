@@ -116,8 +116,8 @@ const App = () => {
     const [activeTab, setActiveTab] = useState('analysis');
     const [isProcessing, setIsProcessing] = useState(false);
     const TYPE_DEFS = [
-  { typeKey: "question_mathinput", label: "문제 > 수식입력형" },
-  { typeKey: "together_select", label: "함께 풀기 > 선택형" },
+  { typeKey: "question.mathinput", label: "문제 > 수식입력형" },
+  { typeKey: "together.select", label: "함께 풀기 > 선택형" },
   // 이후 계속 추가
 ];
     const [analysisImages, setAnalysisImages] = useState([]);
