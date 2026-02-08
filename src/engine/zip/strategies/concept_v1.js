@@ -1,7 +1,7 @@
 import { injectConceptBase } from "../handlers/concept/base";
 
 const createConceptStrategy = (config) => {
-    const { typeKey, _manifest, strategy } = config;
+    const { typeKey, strategy } = config;
     const options = strategy.options || {}; // { hasImage, contentImageUrl, ... }
 
     return {
@@ -28,7 +28,7 @@ const createConceptStrategy = (config) => {
         },
 
         // [REQUIRED] Interface for zipProcessor.js
-        injectHtmlPage({ doc, manifest, data, pageIndex }) {
+        injectHtmlPage({ doc, data, pageIndex }) {
             // 1. Call Handler to manipulate DOM
             injectConceptBase({ doc, data });
 

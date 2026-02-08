@@ -74,10 +74,10 @@ export async function processAndDownloadZip({
     // 1) 템플릿 메타
     const templateMeta = templates.find((t) => t.id === selectedTemplateId);
     if (!templateMeta) throw new Error("템플릿 메타데이터를 찾을 수 없습니다.");
-    const _baseTemplateId =
-      customConfig?.baseTemplateTypeKey
-        ? templates.find(t => t.typeKey === customConfig.baseTemplateTypeKey)?.id
-        : selectedTemplateId;
+    //const baseTemplateId =
+    //  customConfig?.baseTemplateTypeKey
+    //    ? templates.find(t => t.typeKey === customConfig.baseTemplateTypeKey)?.id
+    //    : selectedTemplateId;
     // [Changed] Strategy Selection
     let engine;
     let typeKey;
@@ -293,7 +293,7 @@ export async function processAndDownloadZip({
             // pathPrefix is directory of HTML.
             // We construct: pathPrefix + "images/content_XX.png"
             if (hasImage && blob) {
-              const _imgFilename = `content_${pNumStr}.png`; // Assuming PNG for canvas or blob
+              //const imgFilename = `content_${pNumStr}.png`; // Assuming PNG for canvas or blob
               let ext = 'png';
               if (blob.type) {
                 ext = blob.type.split('/')[1] || 'png';
