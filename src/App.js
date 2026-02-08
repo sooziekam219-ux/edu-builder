@@ -69,7 +69,6 @@ const ASSETS = {
 
 // --- Firebase Config ---
 const raw = process.env.REACT_APP_FIREBASE_CONFIG;
-console.log("REACT_APP_FIREBASE_CONFIG:", raw);
 
 if (!raw) throw new Error("REACT_APP_FIREBASE_CONFIG가 비어있음(.env 설정 확인)");
 
