@@ -1,7 +1,7 @@
 import { injectConceptBase } from "../handlers/concept/base";
 
 const createConceptStrategy = (config) => {
-    const { typeKey, manifest, strategy } = config;
+    const { typeKey, _manifest, strategy } = config;
     const options = strategy.options || {}; // { hasImage, contentImageUrl, ... }
 
     return {
