@@ -73,12 +73,18 @@ console.log("REACT_APP_FIREBASE_CONFIG:", raw);
 
 if (!raw) throw new Error("REACT_APP_FIREBASE_CONFIG가 비어있음(.env 설정 확인)");
 
+// --- Firebase Config & Init ---
 let firebaseConfig;
 try {
-    firebaseConfig = JSON.parse(raw);
+    const raw = process.env.REACT_APP_FIREBASE_CONFIG;
+    if (!raw) {
+        throw new Error("환경 변수 REACT_APP_FIREBASE_CONFIG가 설정되지 않았습니다.");
+    }
+    firebaseConfig = JSON.parse(raw.trim());
 } catch (e) {
-    throw new Error("REACT_APP_FIREBASE_CONFIG JSON 파싱 실패: " + e.message);
+    console.error("Firebase 초기화 에러:", e.message);
 }
+
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -235,13 +241,46 @@ const App = () => {
     // }
 
 
-    /* 익명 로그인*/
+    // 기존의 useEffect 두 개를 지우고 아래 하나로 합치세요
     useEffect(() => {
-        const unsub = onAuthStateChanged(auth, async (u) => {
-            if (!u) await signInAnonymously(auth);
+        // 1. 인증 상태 감시 (익명 로그인 처리)
+        const unsubAuth = onAuthStateChanged(auth, async (u) => {
+            if (u) {
+                setUser(u); // 유저 정보가 등록되어야 다음 useEffect가 작동함
+            } else {
+                try {
+                    await signInAnonymously(auth);
+                } catch (err) {
+                    console.error("익명 로그인 실패:", err);
+                }
+            }
         });
-        return () => unsub();
-    }, []);
+
+        return () => unsubAuth();
+    }, [auth]);
+
+    useEffect(() => {
+        // 2. 중요: 유저가 없을 때는 아예 Firestore에 접근하지 않음 (권한 에러 방지)
+        if (!user) return;
+
+        const q = collection(db, 'artifacts', appId, 'public', 'data', 'templates');
+        const unsubSnapshot = onSnapshot(q,
+            (snapshot) => {
+                const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setTemplates(list);
+            },
+            (error) => {
+                // 배포 후 에러 발생 시 여기서 원인 확인 가능
+                console.error("Firestore Snapshot 에러:", error.code, error.message);
+            }
+        );
+
+        return () => unsubSnapshot();
+    }, [user, db, appId]); // user가 변경될 때마다(로그인 성공 시) 실행
+
+
+
+
     // ================================
     // [NEW] Detection Logic (Family vs Type)
     // ================================
@@ -436,14 +475,6 @@ const App = () => {
         return () => unsubscribe();
     }, []);
 
-    useEffect(() => {
-        if (!user) return;
-        const q = collection(db, 'artifacts', appId, 'public', 'data', 'templates');
-        return onSnapshot(q, (snapshot) => {
-            const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setTemplates(list);
-        });
-    }, [user, db, appId]);
 
     useEffect(() => {
         if (filteredTemplates.length === 0) {
