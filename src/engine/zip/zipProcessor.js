@@ -3,11 +3,15 @@ import { collection, getDocs } from "firebase/firestore";
 import sanitizeLaTeX from "../utils/sanitize";
 import togetherSelect from "./handlers/together/select";
 import questionMathinput from "./handlers/question/mathinput"; // 이미 쓰고 있으면 그걸로
-// ...추가될 유형들 계속
+import questionTextinput from "./handlers/question/textinput"; // [NEW] Strategy Pattern (Input v1)
+
+import createInputStrategy from "./strategies/input_v1";
+import createTogetherStrategy from "./strategies/together_v1"; // [NEW]
 
 const ENGINE_BY_TYPEKEY = {
   [togetherSelect.typeKey]: togetherSelect,
   [questionMathinput.typeKey]: questionMathinput,
+  [questionTextinput.typeKey]: questionTextinput,
 };
 
 /**
@@ -15,7 +19,8 @@ const ENGINE_BY_TYPEKEY = {
  * processAndDownloadZip({
  *   templates, selectedTemplateId, extractedBuildData,
  *   setStatusMessage, setIsProcessing, removePagination,
- *   db, appId
+ *   db, appId,
+ *   customConfig // [NEW] Draft Config
  * })
  */
 export async function processAndDownloadZip({
@@ -27,6 +32,7 @@ export async function processAndDownloadZip({
   removePagination, // can be deprecated or auto-used
   db,
   appId,
+  customConfig, // [NEW]
 }) {
   console.log("processAndDownloadZip called", buildPages);
 
@@ -42,7 +48,7 @@ export async function processAndDownloadZip({
     return;
   }
   if (!selectedTemplateId) {
-    setStatusMessage({ title: "알림", message: "템플릿이 선택되지 않았습니다.", type: "error" });
+    setStatusMessage({ title: "알림", 템플릿트가: "선택되지 않았습니다.", type: "error" });
     return;
   }
 
@@ -64,8 +70,29 @@ export async function processAndDownloadZip({
     // 1) 템플릿 메타
     const templateMeta = templates.find((t) => t.id === selectedTemplateId);
     if (!templateMeta) throw new Error("템플릿 메타데이터를 찾을 수 없습니다.");
-    const typeKey = templateMeta.typeKey;
-    const engine = ENGINE_BY_TYPEKEY[typeKey];
+    const baseTemplateId =
+      customConfig?.baseTemplateTypeKey
+        ? templates.find(t => t.typeKey === customConfig.baseTemplateTypeKey)?.id
+        : selectedTemplateId;
+    // [Changed] Strategy Selection
+    let engine;
+    let typeKey;
+
+    if (customConfig) {
+      console.log("Using Custom Config (Draft):", customConfig);
+      typeKey = customConfig.typeKey;
+
+      // [NEW] Select Strategy based on typeKey
+      if (typeKey === "together.custom") {
+        engine = createTogetherStrategy(customConfig.strategy.options);
+      } else {
+        // Default to input_v1 (input.custom)
+        engine = createInputStrategy(customConfig);
+      }
+    } else {
+      typeKey = templateMeta.typeKey;
+      engine = ENGINE_BY_TYPEKEY[typeKey];
+    }
 
     if (!typeKey) throw new Error("템플릿에 typeKey가 없습니다.");
     if (!engine) throw new Error(`엔진이 없습니다: ${typeKey}`);
@@ -182,6 +209,145 @@ export async function processAndDownloadZip({
 
         // footer > .btn-page-prev, .btn-page-next 등
         doc.querySelectorAll('.btn-page-prev, .btn-page-next').forEach(el => el.remove());
+      }
+
+      // 엔진 주입 전, 뼈대 수정 (Skeleton Modification)
+      if (engine.getSkeletonConfig) {
+        const skeletonConfig = engine.getSkeletonConfig();
+
+        // --- Content Image Handling (Crop & Save) ---
+        if (skeletonConfig.contentImageUrl) {
+          try {
+            // Initialize Image
+            const img = new Image();
+            img.crossOrigin = "Anonymous";
+
+            await new Promise((resolve, reject) => {
+              img.onload = resolve;
+              img.onerror = reject;
+              img.src = skeletonConfig.contentImageUrl;
+            });
+
+            let blob;
+            const hasBounds = skeletonConfig.figureBounds &&
+              Array.isArray(skeletonConfig.figureBounds) &&
+              skeletonConfig.figureBounds.length === 4;
+
+            if (hasBounds) {
+              // [Crop Logic]
+              const [ymin, xmin, ymax, xmax] = skeletonConfig.figureBounds;
+              const w = img.naturalWidth;
+              const h = img.naturalHeight;
+
+              const y1 = Math.floor((ymin / 100) * h);
+              const x1 = Math.floor((xmin / 100) * w);
+              const y2 = Math.ceil((ymax / 100) * h);
+              const x2 = Math.ceil((xmax / 100) * w);
+
+              const cropW = Math.max(1, x2 - x1);
+              const cropH = Math.max(1, y2 - y1);
+
+              const canvas = document.createElement('canvas');
+              canvas.width = cropW;
+              canvas.height = cropH;
+              const ctx = canvas.getContext('2d');
+
+              ctx.drawImage(img, x1, y1, cropW, cropH, 0, 0, cropW, cropH);
+
+              blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+            } else {
+              // [Full Logic]
+              const response = await fetch(skeletonConfig.contentImageUrl);
+              blob = await response.blob();
+            }
+
+            // [Path Logic]
+            // User Requirement: Use existing 'images' folder relative to HTML. src="./images/filename"
+            // pathPrefix is directory of HTML.
+            // We construct: pathPrefix + "images/content_XX.png"
+            const imgFilename = `content_${pNumStr}.png`; // Assuming PNG for canvas or blob
+            let ext = 'png';
+            if (!hasBounds && blob.type) {
+              ext = blob.type.split('/')[1] || 'png';
+            }
+            const finalFilename = `content_${pNumStr}.${ext}`;
+            const imagesDir = pathPrefix + "images/";
+            const fullPath = `${imagesDir}${finalFilename}`;
+
+            loadedZip.file(fullPath, blob);
+
+            // Update Skeleton Config
+            skeletonConfig.contentImageUrl = `./images/${finalFilename}`;
+
+            // [Alt Text]
+            const altText = skeletonConfig.figureAlt || normalizedData.questions?.[0]?.promptLatex || normalizedData.mainQuestion || "문제 이미지";
+            skeletonConfig.altText = altText;
+
+          } catch (err) {
+            console.error("Failed to process content image:", err);
+          }
+        }
+
+        // --- DOM Modification ---
+        // Header
+        if (skeletonConfig.headerUrl) {
+          const headerImg = doc.querySelector(".tit img") || doc.querySelector("header img");
+          if (headerImg) {
+            headerImg.src = skeletonConfig.headerUrl;
+            headerImg.style.display = "inline-block";
+          }
+        }
+
+        // Content Image Injection
+        if (skeletonConfig.contentImageUrl) {
+          const img = doc.createElement("img");
+          img.src = skeletonConfig.contentImageUrl;
+          if (skeletonConfig.altText) img.alt = skeletonConfig.altText;
+          img.className = "w-full max-w-3xl mt-4 rounded-xl border border-slate-200 block mx-auto shadow-sm mb-4";
+
+          // [NEW] Generic Injection via imageTargetSelector
+          if (skeletonConfig.imageTargetSelector) {
+            const target = doc.querySelector(skeletonConfig.imageTargetSelector);
+            if (target && target.parentNode) {
+              const pos = skeletonConfig.imagePosition || "prepend";
+              if (pos === "prepend") {
+                target.parentNode.insertBefore(img, target);
+              } else if (pos === "append") {
+                target.appendChild(img);
+              } else {
+                target.parentNode.insertBefore(img, target);
+              }
+            }
+          }
+          // Legacy Injection (for input_v1)
+          else {
+            const rowTemplate = doc.querySelector(engine.getSkeletonConfig().rowTemplate || ".flex-row.ai-s.jc-sb");
+            if (rowTemplate) {
+              const passage = rowTemplate.querySelector(".a2 p") || rowTemplate.querySelector(".passage");
+              if (passage && passage.parentNode) {
+                passage.parentNode.insertBefore(img, passage.nextSibling);
+              }
+            }
+          }
+        }
+
+        // Input Style
+        if (skeletonConfig.inputKind === "text") {
+          const rowTemplate = doc.querySelector(".flex-row.ai-s.jc-sb");
+          if (rowTemplate) {
+            const inp = rowTemplate.querySelector(".inp-wrap > div");
+            if (inp) {
+              inp.classList.remove("box-type", "input-box", "w200");
+              inp.style.border = "none";
+              inp.style.borderBottom = "2px solid #cbd5e1";
+              inp.style.backgroundColor = "transparent";
+              inp.style.borderRadius = "0";
+              inp.style.width = "100%";
+              inp.style.maxWidth = "200px";
+              inp.style.padding = "4px 8px";
+            }
+          }
+        }
       }
 
       // 엔진 주입

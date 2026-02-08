@@ -19,11 +19,11 @@ console.log("App.js loaded");
 const JSZIP_CDN = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
 const PPTX_CDN = "https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs@3.12.0/dist/pptxgen.bundle.js";
 const link = document.createElement('link');
-link.href = 'https://fonts.googleapis.com/css2?family=Nanum+Gothic&display=swap';
+link.href = 'https://fonts.googleapis.com/css2?family=Gothic+A1&family=Noto+Sans+KR:wght@100..900&display=swap';
 link.rel = 'stylesheet';
 document.head.appendChild(link);
 
-document.body.style.fontFamily = "'Nanum Gothic', sans-serif";
+document.body.style.fontFamily = "Gothic A1, sans-serif";
 const ASSETS = {
     TITLES: {
         '발견하기': 'https://i.imgur.com/t5oUrkW.png',
@@ -93,10 +93,10 @@ const BUILDER_SYSTEM_PROMPT = (isTogether) => isTogether ?
   3. 빈칸의 정답을 직접 계산하여 'correctIndex'를 도출하세요.
   4. 'options'는 이미지에 설명된 정답을 포함하여 총 3개의 보기로 만드세요.
   5. 'correctIndex'는 'options' 배열에서 실제 정답이 있는 순서(1, 2, 3 중 하나)를 숫자로 적으세요.
-  JSON 구조: { "mainQuestion": "...", "guideText": "▷ 빈칸을 눌러 정답을 선택하세요.", "lines": [{ "label": "(1)", "parts": [{ "type": "text", "content": "..." }, { "type": "blank", "options": ["A","B","C"], "correctIndex": 1, "width": 120 }] }] }`
+  JSON 구조: { "type": "함께 풀기", "figure_bounds": [0,0,100,100], "figure_alt": "이미지 설명(수식X)", "mainQuestion": "...", "guideText": "▷ 빈칸을 눌러 정답을 선택하세요.", "lines": [{ "label": "(1)", "parts": [{ "type": "text", "content": "..." }, { "type": "blank", "options": ["A","B","C"], "correctIndex": 1, "width": 120 }] }] }`
     :
     `수학 콘텐츠 개발자로서 문제를 분석하세요. LaTeX는 \\\\( 수식 \\\\) 형태 유지.
-  JSON: { "mainQuestion": "...", "guideText": "▷ 빈칸을 눌러 답을 입력하세요.", "subQuestions": [{ "label": "(1)", "passage": "...", "answer": "...", "explanation": "...", "inputWidth": "w200" }] }`;
+  JSON: { "type": "문제", "figure_bounds": [0,0,100,100], "figure_alt": "이미지 설명(수식X)", "mainQuestion": "...", "guideText": "▷ 빈칸을 눌러 답을 입력하세요.", "subQuestions": [{ "label": "(1)", "passage": "...", "answer": "...", "explanation": "...", "inputWidth": "w200" }] }`;
 
 // --- Helpers ---
 // edubuilder_260206.jsx 상단의 sanitizeLaTeX 함수 수정
@@ -126,6 +126,36 @@ const generateLogicText = (type, subtype, answers) => {
     return `[정답 설정]\n- 정답: ${answers.join(', ')}\n\n[기능 로직]\n1. [확인] 클릭 시 정오답 판별.\n2. 정답 시: 파란색(#0000FF) 변경 + 정답 알럿.\n3. 오답 시: 재도전 알럿 + 오답 붉은색 노출.\n4. 버튼 토글: 확인 -> 풀이/다시하기.`;
 };
 
+// [NEW] Draft Config Generator
+const buildDraftInputConfig = ({
+    typeKey,
+    baseTemplateTypeKey, // zip 베이스. 예: "question.mathinput"
+    inputKind = "math", hasImage = false, headerUrl = "", contentImageUrl = "",
+    figureBounds = null, figureAlt = "",
+    isTogether = false // [NEW] Together Mode Flag
+}) => ({
+    typeKey: isTogether ? "together.custom" : "input.custom", // Dynamic Type Key
+    baseTemplateTypeKey: isTogether ? "together.select" : "question.mathinput",
+    manifest: {
+        // Manifest selectors differ by type? Currently unused by zipProcessor directly except as hint.
+        // input_v1 uses them internally? No, input_v1 hardcodes selectors for question.mathinput mostly.
+        // We should make strategy robust.
+        rowTemplate: isTogether ? ".txt1" : ".flex-row.ai-s.jc-sb",
+        // ... other selectors
+    },
+    strategy: {
+        name: isTogether ? "together_v1" : "input_v1", // Strategy Name Switch
+        options: {
+            inputKind,
+            hasImage,
+            headerUrl,
+            contentImageUrl,
+            figureBounds,
+            figureAlt
+        }
+    }
+});
+
 const App = () => {
     const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
@@ -153,26 +183,165 @@ const App = () => {
 
     const [templates, setTemplates] = useState([]);
     const [selectedTemplateId, setSelectedTemplateId] = useState('');
-    const [selectedTypeKey, setSelectedTypeKey] = useState(TYPE_DEFS[0].typeKey);
+    const [selectedTypeKey, setSelectedTypeKey] = useState(""); // Default to empty (Auto Detect)
 
     // [New] Multi-Page Builder State
     const [buildPages, setBuildPages] = useState([{ id: 1, image: null, data: null }]);
     const [activePageIndex, setActivePageIndex] = useState(0);
 
-    const [removePagination, setRemovePagination] = useState(true);
-    const filteredTemplates = templates.filter(t => t.typeKey === selectedTypeKey);
+    // [New] Input Strategy Test State
+    const [inputKind, setInputKind] = useState("math"); // math | text | ocr
+    const [hasImage, setHasImage] = useState(false);
 
-    const onClickZip = () =>
+    const [removePagination, setRemovePagination] = useState(true);
+
+    // Derived Logic
+    const activeData = buildPages[activePageIndex]?.data;
+
+    // // 1. Detect Type from Data
+    // let detectedTypeKey = "";
+    // if (activeData) {
+    //     if (activeData.subQuestions || activeData.questions) 
+    //         detectedTypeKey = "question.mathinput"; // Or generalized to question.input later
+    //     else if (activeData.lines) 
+    //         detectedTypeKey = "together.select";
+    // }
+
+    // ================================
+    // [NEW] Detection Logic (Family vs Type)
+    // ================================
+
+    // 1️⃣ 패턴(Strategy Family) 판별
+    let detectedFamily = "";
+    if (activeData) {
+        if (activeData.lines) detectedFamily = "together";
+        else if (activeData.subQuestions || activeData.questions) detectedFamily = "input";
+    }
+
+    // 2️⃣ 의미 typeKey (있으면 사용, 없으면 empty)
+    const detectedTypeKey = activeData?.typeKey || "";
+
+    // 3️⃣ 기존 템플릿 존재 여부(EXACT 판별용)
+    const hasExactTemplate = detectedTypeKey
+        ? templates.some(t => t.typeKey === detectedTypeKey)
+        : false;
+
+    // 4️⃣ Detection Status 결정
+    let detectionStatus = "UNKNOWN"; // EXACT | SIMILAR | NEW
+
+    if (!detectedFamily) {
+        detectionStatus = "UNKNOWN";
+    } else if (hasExactTemplate) {
+        detectionStatus = "EXACT";
+    } else if (detectedFamily === "input") {
+        detectionStatus = "SIMILAR"; // input_v1 전략으로 생성 가능
+    } else {
+        detectionStatus = "NEW";
+    }
+
+
+    // 2. Filter Templates: If manual type selected, use it. Else if detected, use matching. Else show all?
+    // User said: "Advanced option can select existing". 
+    // Let's filter by selectedTypeKey if present.
+    const filteredTemplates = templates.filter(t => !selectedTypeKey || t.typeKey === selectedTypeKey);
+
+    // 3. Status Logic
+    // EXISTING: Found templates matching the DETECTED type (regardless of selection?) -> Auto-match
+    // DRAFT: No matching templates for DETECTED type, but structure allows Input V1
+
+    // Find templates that match the *detected* type
+    const matchingDetectedTemplates = templates.filter(t => t.typeKey === detectedTypeKey);
+    const hasExistingTemplate = matchingDetectedTemplates.length > 0;
+
+    const isInputType = detectedFamily === "input";// For Draft strategy scope
+
+    // [Strict Detection Logic]
+
+    // Header Mapping (Title Type -> Template TypeKey)
+    const TYPE_MAPPING = {
+        "question.mathinput": ["문제", "예제", "따라 하기"], // Exact header matches
+        "together.select": ["함께 풀기", "스스로 확인하기"]
+    };
+
+    if (detectedTypeKey) {
+        // [New Logic using activeData.type if available]
+        const headerType = activeData?.type || "";
+        const allowedHeaders = TYPE_MAPPING[detectedTypeKey] || [];
+        const isHeaderMatch = allowedHeaders.some(h => headerType.includes(h));
+
+        if (hasExistingTemplate && isHeaderMatch) {
+            detectionStatus = "EXACT";
+        } else if (hasExistingTemplate && detectedTypeKey === 'question.mathinput') {
+            // Structure OK, Key OK, but Header Mismatch -> Similar -> Draft
+            detectionStatus = "SIMILAR";
+        } else if (isInputType) {
+            detectionStatus = "SIMILAR"; // Draft mode for input
+        } else {
+            detectionStatus = "NEW";
+        }
+    }
+
+    const onClickZip = () => {
+        let customConfig = null;
+        let finalTemplateId = selectedTemplateId;
+
+        const currentData = buildPages[activePageIndex]?.data;
+        const isTogether = (selectedTypeKey || currentData?.type || "").startsWith("together") || (currentData?.type === "함께 풀기");
+
+        // Auto-Selection Logic if not manually selected
+        if (!finalTemplateId) {
+            if (detectionStatus === "EXACT") {
+                finalTemplateId = matchingDetectedTemplates[0]?.id;
+            } else if (detectionStatus === "SIMILAR" || detectionStatus === "NEW") {
+                // Determine base for Draft (needs a template zip to clone assets from)
+                // [Fixed] Dynamic Base Template
+                const baseType = isTogether ? "together.select" : "question.mathinput";
+                finalTemplateId = templates.find(t => t.typeKey === baseType)?.id;
+            }
+        }
+
+        // Generate Draft Config
+        // [Fixed] Always generate config if manual override or new/similar
+        // Even if EXACT, user might want to force Draft mode via Advanced Options? 
+        // For now, keep logic: Only if SIMILAR/NEW OR manual drafted.
+        if (detectionStatus === "SIMILAR" || detectionStatus === "NEW" || selectedTypeKey) {
+            const headerType = currentData?.type || (isTogether ? "함께 풀기" : "문제");
+            // Check if ASSETS is available in scope, it is global const
+            const hUrl = ASSETS.TITLES[headerType] || ASSETS.TITLES['문제'];
+            const cImg = buildPages[activePageIndex]?.image || "";
+
+            const figureBounds = currentData?.figure_bounds;
+            const figureAlt = currentData?.figure_alt;
+
+            customConfig = buildDraftInputConfig({
+                inputKind,
+                hasImage,
+                headerUrl: hUrl,
+                contentImageUrl: cImg,
+                figureBounds,
+                figureAlt,
+                isTogether
+            });
+            console.log("Generating Draft Config:", customConfig);
+        }
+
+        if (!finalTemplateId && !customConfig) {
+            setStatusMessage({ title: "알림", message: "사용할 템플릿을 찾을 수 없습니다.", type: "error" });
+            return;
+        }
+
         processAndDownloadZip({
             templates,
-            selectedTemplateId,
+            selectedTemplateId: finalTemplateId,
             buildPages,
             setStatusMessage,
             setIsProcessing,
             removePagination,
             db,
             appId,
+            customConfig
         });
+    };
 
     const builderImageInputRef = useRef(null);
     const templateZipInputRef = useRef(null);
@@ -582,16 +751,38 @@ const App = () => {
             reader.readAsDataURL(file);
         });
         const template = templates.find(t => t.id === selectedTemplateId);
+        // [Fixed] Check selectedTypeKey as well
+        const isTogether = (template?.typeKey || selectedTypeKey || "").startsWith('together');
+        const systemPrompt = BUILDER_SYSTEM_PROMPT(isTogether);
+
         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 contents: [{ parts: [{ text: "Extract JSON for build." }, { inlineData: { mimeType: "image/png", data: base64 } }] }],
-                systemInstruction: { parts: [{ text: BUILDER_SYSTEM_PROMPT(template?.typeKey?.startsWith('together')) }] },
+                systemInstruction: { parts: [{ text: systemPrompt }] },
                 generationConfig: { responseMimeType: "application/json" }
             })
         });
+
+        if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error?.message || `API Error ${res.status}`);
+        }
+
         const data = await res.json();
-        return JSON.parse(data.candidates[0].content.parts[0].text);
+
+        if (!data.candidates || !data.candidates[0]) {
+            console.error("Gemini No Candidates:", data);
+            if (data.promptFeedback?.blockReason) {
+                throw new Error(`AI Safety Block: ${data.promptFeedback.blockReason}`);
+            }
+            throw new Error("AI 분석 결과가 없습니다. 다시 시도해주세요.");
+        }
+
+        const text = data.candidates[0].content.parts[0].text;
+        // Strip markdown code blocks if present
+        const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        return JSON.parse(cleanText);
     };
 
     const handleBuilderImage = async (e) => {
@@ -731,7 +922,7 @@ const App = () => {
                             <h2 className="text-4xl font-black text-slate-800 tracking-tight">
                                 {activeTab === 'analysis' && "1. 교과서 분석"}
                                 {activeTab === 'storyboard' && "2. 스토리보드 리뷰"}
-                                {activeTab === 'builder' && "3. 제작 엔진"}
+                                {activeTab === 'builder' && "3. 콘텐츠 자동 생성"}
                                 {activeTab === 'library' && "템플릿 라이브러리"}
                             </h2>
                             <p className="text-slate-400 font-bold mt-2">Kim Hwa-kyung Specialized Integrated Platform</p>                        </div>
@@ -832,49 +1023,7 @@ const App = () => {
                             <div className="col-span-1 space-y-8">
                                 <div className="bg-white p-10 rounded-[3.5rem] border border-slate-200 shadow-sm">
 
-                                    <label className="text-xs font-black text-slate-400 uppercase mb-5 block ml-2 tracking-widest">
-                                        1. Select Type
-                                    </label>
-                                    <select
-                                        value={selectedTypeKey}
-                                        onChange={(e) => {
-                                            setSelectedTypeKey(e.target.value);
-                                            setSelectedTemplateId(""); // 유형 바꾸면 템플릿 선택 초기화
-                                        }}
-                                        className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-3xl font-black outline-none focus:border-indigo-300 transition-all appearance-none"
-                                    >
-                                        {TYPE_DEFS.map((t) => (
-                                            <option key={t.typeKey} value={t.typeKey}>
-                                                {t.label}
-                                            </option>
-                                        ))}
-                                    </select>
-
-                                    <label className="text-xs font-black text-slate-400 uppercase mt-10 mb-5 block ml-2 tracking-widest">
-                                        2. Select Template
-                                    </label>
-
-                                    {filteredTemplates.length === 0 ? (
-                                        <div className="w-full p-5 bg-amber-50 border-2 border-amber-200 rounded-3xl font-black text-amber-700">
-                                            이 유형에 연결된 템플릿이 없습니다. 템플릿 zip을 업로드해야 합니다.
-                                        </div>
-                                    ) : (
-                                        <select
-                                            value={selectedTemplateId || filteredTemplates[0].id}
-                                            onChange={(e) => setSelectedTemplateId(e.target.value)}
-                                            className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-3xl font-black outline-none focus:border-indigo-300 transition-all appearance-none"
-                                        >
-                                            {filteredTemplates.map((t) => (
-                                                <option key={t.id} value={t.id}>
-                                                    {t.name}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    )}
-
-
-
-                                    <label className="text-xs font-black text-slate-400 uppercase mt-10 mb-5 block ml-2 tracking-widest">2. Build Pages</label>
+                                    <label className="text-xs font-black text-slate-400 uppercase mb-5 block ml-2 tracking-widest">UPLOAD SB IMAGES</label>
 
                                     <div className="flex gap-2 mb-4 flex-wrap">
                                         {buildPages.map((p, idx) => (
@@ -900,12 +1049,121 @@ const App = () => {
                                         <input ref={templateZipInputRef} type="file" multiple accept="image/*" onChange={handleBuilderImage} className="hidden" />
                                         {buildPages[activePageIndex]?.image ? <img src={buildPages[activePageIndex].image} className="w-full h-full object-cover" /> : <div className="text-center text-slate-300"><ImageIcon className="mx-auto mb-2" size={48} /><span className="text-xs font-bold">Upload Image(s)</span></div>}
                                     </div>
+
+                                    <details className="mt-10 mb-5 text-slate-400">
+                                        <summary className="cursor-pointer text-xs font-black uppercase tracking-widest hover:text-indigo-500 transition-colors">Advanced Options</summary>
+                                        <div className="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-4">
+
+                                            <div>
+                                                <label className="text-xs font-black text-slate-400 uppercase mb-2 block tracking-widest">
+                                                    Manual Type Filtering
+                                                </label>
+                                                <select
+                                                    value={selectedTypeKey}
+                                                    onChange={(e) => {
+                                                        setSelectedTypeKey(e.target.value);
+                                                        setSelectedTemplateId("");
+                                                    }}
+                                                    className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-300"
+                                                >
+                                                    <option value="">Auto Detect (Default)</option>
+                                                    {TYPE_DEFS.map((t) => (
+                                                        <option key={t.typeKey} value={t.typeKey}>
+                                                            {t.label}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label className="text-xs font-black text-slate-400 uppercase mb-2 block tracking-widest">
+                                                    Select Template
+                                                </label>
+                                                <select
+                                                    value={selectedTemplateId || ""}
+                                                    onChange={(e) => setSelectedTemplateId(e.target.value)}
+                                                    className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-300"
+                                                >
+                                                    <option value="">
+                                                        {selectedTypeKey ? "Select a template..." : "Auto Select based on detection"}
+                                                    </option>
+                                                    {filteredTemplates.map((t) => (
+                                                        <option key={t.id} value={t.id}>{t.name}</option>
+                                                    ))}
+                                                    {filteredTemplates.length === 0 && <option disabled>No templates available</option>}
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </details>
                                 </div>
                             </div>
                             <div className="col-span-2">
                                 <div className="bg-white p-12 rounded-[4.5rem] border border-slate-200 shadow-sm min-h-[600px] flex flex-col relative overflow-hidden">
                                     {buildPages[activePageIndex]?.data ? (
                                         <div className="w-full space-y-10 animate-in slide-in-from-right-10 duration-500">
+
+                                            {/* [NEW] Detected Strategy Card */}
+                                            {isInputType && (
+                                                <div className={`p-6 rounded-[2.5rem] border-2 ${detectionStatus === 'EXACT' ? 'bg-green-50 border-green-200' : 'bg-indigo-50 border-indigo-200'}`}>
+                                                    <div className="flex items-center gap-3 mb-2">
+                                                        <ShieldCheck size={20} className={detectionStatus === 'EXACT' ? 'text-green-600' : 'text-indigo-600'} />
+                                                        <span className="font-black text-sm uppercase tracking-wider opacity-60">Detected Strategy</span>
+                                                    </div>
+
+                                                    {detectionStatus === 'EXACT' && (
+                                                        <div>
+                                                            <p className="font-bold text-lg text-green-800 mb-2">✅ 완벽히 일치하는 기존 템플릿 발견</p>
+                                                            <div className="bg-white p-3 rounded-xl border border-green-100 text-xs font-bold text-green-600">
+                                                                Type: {activeData.type} / {detectedTypeKey}<br />
+                                                                Family: {detectedFamily}<br />
+                                                                Matching Templates: {matchingDetectedTemplates.length} matches
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {(detectionStatus === 'SIMILAR' || detectionStatus === 'NEW') && (
+                                                        <div>
+                                                            <div className="flex items-center gap-2 mb-2">
+                                                                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase text-white ${detectionStatus === 'SIMILAR' ? 'bg-amber-400' : 'bg-rose-400'}`}>
+                                                                    {detectionStatus}
+                                                                </span>
+                                                                <p className="font-bold text-lg text-indigo-800">
+                                                                    {detectionStatus === 'SIMILAR' ? "유사한 구조의 템플릿이 있습니다." : "새로운 유형입니다. 다른 방법을 사용하여 생성하세요."}
+                                                                </p>
+                                                            </div>
+                                                            <p className="text-xs text-slate-500 font-bold mb-4">Input v1 모드로 생성합니다.</p>
+
+                                                            {/* Options for Draft */}
+                                                            <div className="flex gap-4">
+                                                                <div className="bg-white p-3 rounded-xl border border-indigo-100 flex-1">
+                                                                    <label className="text-[10px] font-black text-indigo-400 uppercase block mb-1">입력칸 유형</label>
+                                                                    <div className="flex bg-indigo-50 rounded-lg p-1">
+                                                                        {['math', 'text', 'ocr'].map(k => (
+                                                                            <button
+                                                                                key={k}
+                                                                                onClick={() => setInputKind(k)}
+                                                                                className={`flex-1 py-1 text-xs font-bold rounded-md transition-all ${inputKind === k ? 'bg-white shadow-sm text-indigo-600' : 'text-indigo-300 hover:text-indigo-500'}`}
+                                                                            >
+                                                                                {k}
+                                                                            </button>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="bg-white p-3 rounded-xl border border-indigo-100 flex-1">
+                                                                    <label className="text-[10px] font-black text-indigo-400 uppercase block mb-1">이미지 유무</label>
+                                                                    <button
+                                                                        onClick={() => setHasImage(!hasImage)}
+                                                                        className={`w-full py-2 text-xs font-bold rounded-lg transition-all ${hasImage ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}
+                                                                    >
+                                                                        {hasImage ? 'Image Enabled' : 'No Image'}
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
                                             <div className="flex items-center justify-between">
                                                 <h3 className="text-3xl font-black tracking-tight">Page {buildPages[activePageIndex].id} Data</h3>
                                                 <span className="bg-emerald-100 text-emerald-600 px-4 py-1.5 rounded-2xl text-[10px] font-black uppercase border border-emerald-200">Engine Ready</span>
