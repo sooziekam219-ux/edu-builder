@@ -1,0 +1,79 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>개념</title>
+    <link rel="stylesheet" type="text/css" href="../../../../common1/style/common.css">
+    <style>
+        
+    </style>
+</head>
+
+<body>
+    <div class="wrap concept">
+
+        <header>
+            <h1><img src="images/tit-concept.png" alt="개념" class="lang-image"></h1>
+        </header>
+
+        <main>
+            <h1 class="mb20 tit-bl3">미지수가 2개인 일차방정식과 그 해는 무엇일까? (1)</h1>
+
+               <p class="fs35 fw500 ml80 mb20 lh200">&nbsp;&nbsp;&nbsp;&nbsp;20명의 학생들이 놀이공원에서 3명 또는 4명씩 모둠을 이루어 보트를 타려고 한다. 3명씩 타는 모둠은<br>
+                \(x\)<span translate="no" id="countUnit">개</span>이고, 4명씩 타는 모둠은 <span translate="no">\(y\)</span><span translate="no" id="countUnit">개</span>라고 할 때, 이를 <span translate="no"><span translate="no">\(x\), \(y\)</span></span>를 사용한 등식으로 나타내면  
+               </p>
+
+               <p class="fs35 ml200 mb20"><span translate="no">\(3x + 4y = 20\)</span></p>
+              
+               <p class="fs35 fw500 ml80 mb20 lh200">이고, 우변의 20을 좌변으로 이항하면 <span translate="no">\(3𝑥+4𝑦−20=0\)</span>으로 나타낼 수 있다.<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;이 등식은 <span translate="no"><span translate="no">\(x,y\)</span></span>의 값에 따라 참이 되기도 하고 거짓이 되기도 하므로 <span translate="no">\(x,y\)</span>에 대한 방정식이다. 또 이 방정식은<br>
+                미지수가 <span translate="no">\(x,y\)</span>의 2개이고, 차수가 모두 1이다. 이와 같은 방정식을 미지수가 2개인 일차방정식이라고 한다.
+               </p>
+            </main>
+        <footer>
+            <nav class="pagination">
+                <button class="btn-prev"disabled>이전 페이지</button>
+                <ol role="none">
+                    <li><a href="#" class="active" aria-label="현재 페이지 일"><span class="wa-hide">현재위치</span>1</a></li>
+                    <li><a href="#" aria-label="이 페이지">2</a></li>
+                </ol>
+                <button class="btn-next" aria-label="다음 페이지로 이동">다음 페이지</button>
+            </nav>
+        </footer>
+
+    </div>
+
+    <script src="../../../../common1/js/jquery-3.7.1.min.js"></script>
+    <script src="../../../../common1/js/jquery-ui.min.js"></script>
+    <script src="../../../../common1/js/jquery.ui.touch-punch.min.js"></script>
+    <script src="js/view_pageinfo.js"></script>
+    <script src="https://aidtcdn.aitextbook.co.kr/content/2025/js/dtext_api_wrapper_opr.js"></script>
+    <script src="../../../../common1/js/common.js"></script>
+    <script src="../../../../common1/js/tex-svg.js"></script>
+    <script src="js/act.js"></script>
+    <script>
+    // sendIframeLanguage 함수를 호출하면 iframe 컨텐츠에 'message' 이벤트가 전달됨
+    //<span translate="no" id="countUnit">개</span> 이런식으로 태그를 부여해야 함
+    //번역할 내용이 있을 때 translateMap,#countUnit에 넘버 붙여서 복사
+    window.addEventListener("message", (msg) => {
+      const lang = msg.data.lang;
+      if (lang) {
+        const translateMap = {
+          "ko": "개",
+          "en": "pieces",
+          "zh-CN": "件",
+          "vi": "miếng",
+        };
+        const countUnits = document.querySelectorAll("#countUnit");
+        // 각 요소에 대해 번역 적용
+        countUnits.forEach((unit) => {
+          unit.innerText = translateMap[lang];
+        });
+      }
+    });
+  </script>
+</body>
+
+</html>

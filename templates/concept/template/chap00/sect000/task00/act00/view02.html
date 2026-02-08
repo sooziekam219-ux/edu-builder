@@ -1,0 +1,119 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>개념</title>
+    <link rel="stylesheet" type="text/css" href="../../../../common1/style/common.css">
+    <style>
+        .ico1 {bottom: -48px; top: auto; left: auto; right: 1141px; cursor: pointer; z-index: 2;transform: scale(0.7);}
+        .ico2 {bottom: -48px; top: auto; left: auto; right: 447px; cursor: pointer; z-index: 2;transform: scale(0.7);}
+        .hover-box {transition: filter 0.3s ease, transform 0.2s ease;border-radius: 10px;}
+        .hover-box:hover {filter: brightness(0.9) contrast(1.1);transform: translateY(-2px);cursor: pointer;}
+        .concept-wrap {transform: translateX(0%);transition: transform 0.6s ease;}
+        .concept-wrap.collapsed {transform: translateX(-199px);}
+
+        :root :not(:lang(ko)) .trans1 {top: 250px!important;left: 1329px!important;}
+        :root :not(:lang(ko)) .trans2 {top: 289px!important;left: 1146px!important;}
+        :root :not(:lang(ko)) .trans3 {width: 246px!important;}
+        :root :not(:lang(ko)) .concept-wrap.collapsed {transform: translateX(-330px)!important;}
+
+        html[lang="vi"]:root .concept-wrap.collapsed {transform: translateX(-256px)!important;}
+    </style>
+</head>
+
+<body>
+    <div class="wrap concept">
+
+        <header>
+            <h1><img src="images/tit-concept.png" alt="개념" class="lang-image"></h1>
+        </header>
+
+        <main>
+            <h1 class="mb20 tit-bl3">미지수가 2개인 일차방정식과 그 해는 무엇일까? (1)</h1>
+
+            <p class="fs35 fw500 ml80 mb20">일반적으로 미지수가 2개인 일차방정식은</p>
+              
+            <p class="fs35 fw500 ml150 mb20"><span translate="no" class="fw300">\(ax + by + c = 0\)</span> \((\text{단}\) <span translate="no">\(a, \; b, \; c \;\)</span> \(\text{는 상수}\), <span translate="no">\(\; a \neq 0, \; b \neq 0)\)</span></p>
+
+            <p class="fs35 fw500 ml80 mb20">과 같이 나타낼 수 있다.</p>
+              
+            <p class="po-ab" style="top: 388px; left: 276px; width: 1059px;"><img src="images/cct-img1.png" alt="부등식인 예" class="w100p" >
+                <span class="hover-box po-ab btn-click1" style="top: 21px; left: 88px; width: 143px;z-index: 1;" tabindex="0"><img src="images/boy.png" alt="" class="w100p"></span>
+                <span class="hover-box po-ab btn-click2" style="top: 51px; left: 841px; width: 156px;z-index: 1;" tabindex="0"><img src="images/girl.png" alt="" class="w100p"></span>
+                <img src="images/cct-img2.png" class="po-ab" style="top: 65px; left: 211px; width: 275px;" alt="미지수가 두개인 일차방정식인 예, 삼 엑스 마이너스 와이 플러스 이 는 엑스 플러스 일 오른쪽으로 향하는 화살표 이 엑스 마이너스 와이 플러스 일 은 영">
+                <img src="images/cct-img3.png" class="po-ab" style="top: 61px; left: 581px; width: 272px;" alt="미지수가 두개인 일차방정식이 아닌 예, 엑스 플러스 오 와이 는 엑스 마이너스 일 오른쪽으로 향하는 화살표 오 와이 플러스 일 은 영">
+            </p>
+
+            <span class="ico-cusor ico1 flicker2 fadeUp delay5s"></span>
+            <span class="ico-cusor ico2 flicker2 fadeUp delay5s"></span>
+
+            <p class="po-ab cct-talk2" style="top: 264px; left: 186px; width: 138px;display: none;"><img src="images/cct-talk2.png" class="w100p" alt="정리하기">
+                <div class="talk-cr cct-talk2" style="top: 300px; left: 222px;display: none;">
+                    <p style="width: 198px;font-size: 20px;" aria-label="우변에 있는 모든 항을 좌변으로 이항하여 정리해 봐.">우변에 있는 모든<br>항을 좌변으로 이항<br>하여 정리해 봐.</p>
+                </div>
+            </p>
+               
+
+            <p class="po-ab cct-talk3 trans1" style="top: 259px; left: 1263px; width: 125px;display: none;"><img src="images/cct-talk3.png" class="w100p" alt="판단하기">
+                <div class="talk-cl cct-talk3 trans2" style="top: 300px; left: 1087px;display: none;">
+                    <p class="trans3" style="width: 230px;font-size: 20px;" aria-label="괄호 열고 미지수가 두개인 일차식 괄호 닫고 는 영 꼴이면 미지수가 두개인 일차방정식이야.">(미지수가 2개인 일차식)=0<br>꼴이면 미지수가 2개인<br>일차방정식이야.</p>
+                </div>
+            </p>
+
+               <div class="concept-wrap opened collapsed">
+                <button type="button" class="btn-concept opened" style="margin-top: 7px;" aria-label="개념 플러스">
+                    <span>개념<br>PLUS</span>
+                </button>
+                 <div class="concept-content">
+                    <p class="fw600">일정한 값을 갖는 수를<br> 상수라고 한다.</p>
+                </div>
+            </div>
+              
+
+            </main>
+        <footer>
+            <nav class="pagination"style="top: 814px;">
+                <button class="btn-prev" aria-label="이전 페이지로 이동">이전 페이지</button>
+                <ol role="none">
+                    <li><a href="#" aria-label="일 페이지">1</a></li>
+                    <li><a href="#" class="active" aria-label="현재 페이지 이"><span class="wa-hide">현재위치</span>2</a></li>
+                </ol>
+                <button class="btn-next"disabled>다음 페이지</button>
+            </nav>
+        </footer>
+
+    </div>
+
+    <script src="../../../../common1/js/jquery-3.7.1.min.js"></script>
+    <script src="../../../../common1/js/jquery-ui.min.js"></script>
+    <script src="../../../../common1/js/jquery.ui.touch-punch.min.js"></script>
+    <script src="js/view_pageinfo.js"></script>
+    <script src="https://aidtcdn.aitextbook.co.kr/content/2025/js/dtext_api_wrapper_opr.js"></script>
+    <script src="../../../../common1/js/common.js"></script>
+    <script src="../../../../common1/js/tex-svg.js"></script>
+    <script src="js/act2.js"></script>
+
+    <script>
+        // 수식 클릭시 변경
+        $('.btn-click1').on('click', function () {
+            $('.ico1').hide();
+            $('.cct-talk2').fadeIn();
+        });
+        ElmFocusSel_fn($(".btn-click1"));
+
+        $('.btn-click2').on('click', function () {
+            $('.ico2').hide();
+            $('.cct-talk3').fadeIn();
+        });
+        ElmFocusSel_fn($(".btn-click2"));
+          // 개념 플러스
+      $('.btn-concept').on('click', function () {
+        const $wrap = $(this).closest('.concept-wrap');
+         $wrap.toggleClass('collapsed');
+    });
+    </script>
+</body>
+
+</html>

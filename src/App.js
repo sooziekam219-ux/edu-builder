@@ -1035,7 +1035,7 @@ const App = () => {
                                 {activeTab === 'builder' && "콘텐츠 자동 생성"}
                                 {activeTab === 'library' && "템플릿 라이브러리"}
                             </h2>
-                            <p className="text-slate-500 font-small mt-3 text-lg">교과서 이미지를 조작형 콘텐츠로 자동 생성(수학 김화경 저자ver) </p>
+                            <p className="text-slate-500 font-small mt-3 text-lg">교과서 이미지 → 조작형 콘텐츠로 자동 변환(수학 김화경 저자ver) </p>
                         </div>
                         <div className="flex gap-4">
                             {activeTab === 'analysis' && (
@@ -1315,10 +1315,10 @@ const App = () => {
                                                     }
                                                     // No finally block needed as success clears modal, error shows error modal.
                                                 }}
-                                                className={`w-full mt-4 py-3 rounded-xl font-bold text-xs transition-all border flex items-center justify-center gap-2 ${statusMessage?.type === 'loading' ? 'bg-slate-800 text-slate-500 border-slate-700 cursor-wait' : 'bg-white/10 text-emerald-400 hover:bg-emerald-500 hover:text-white border-white/10 hover:border-emerald-400'}`}
+                                                className={`w-full mt-4 py-3 rounded-xl font-bold text-s transition-all border flex items-center justify-center gap-2 ${statusMessage?.type === 'loading' ? 'bg-slate-800 text-slate-500 border-slate-700 cursor-wait' : 'bg-white/10 text-emerald-400 hover:bg-emerald-500 hover:text-white border-white/10 hover:border-emerald-400'}`}
                                             >
                                                 {statusMessage?.type === 'loading' ? <div className="w-3 h-3 rounded-full border-2 border-slate-500 border-t-white animate-spin" /> : <Calculator size={14} />}
-                                                {statusMessage?.type === 'loading' ? "분석 중..." : "콘텐츠 빌더로 복사"}
+                                                {statusMessage?.type === 'loading' ? "분석 중..." : "콘텐츠 생성"}
                                             </button>
                                         </div>
                                     </div>
