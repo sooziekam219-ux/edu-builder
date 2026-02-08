@@ -19,11 +19,35 @@ console.log("App.js loaded");
 const JSZIP_CDN = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
 const PPTX_CDN = "https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs@3.12.0/dist/pptxgen.bundle.js";
 const link = document.createElement('link');
-link.href = 'https://fonts.googleapis.com/css2?family=Gothic+A1&family=Noto+Sans+KR:wght@100..900&display=swap';
+link.href = 'https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css';
 link.rel = 'stylesheet';
 document.head.appendChild(link);
 
-document.body.style.fontFamily = "Gothic A1, sans-serif";
+// Modern Global Styles
+const style = document.createElement('style');
+style.innerHTML = `
+    * { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif !important; }
+    body { background-color: #F8FAFC; color: #334155; }
+    
+    /* Modern Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    /* Selection Color */
+    ::selection { background: #6366f1; color: white; }
+
+    /* Inputs Focus Ring */
+    input:focus, textarea:focus, select:focus {
+        outline: none;
+        box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
+        border-color: #6366f1;
+    }
+`;
+document.head.appendChild(style);
+
+document.body.style.fontFamily = "Pretendard, sans-serif";
 const ASSETS = {
     TITLES: {
         '발견하기': 'https://i.imgur.com/t5oUrkW.png',
@@ -881,19 +905,50 @@ const App = () => {
     };
 
     return (
-        <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans">
+        <div className="flex h-screen bg-[#F8FAFC] text-slate-800 overflow-hidden selection:bg-indigo-500 selection:text-white">
             <StatusModal status={statusMessage} onClose={() => setStatusMessage(null)} />
-            <aside className="w-64 bg-white border-r border-slate-200 p-6 flex flex-col gap-8 z-20">
-                <div className="flex items-center gap-3 px-2">
-                    <div className="bg-indigo-600 p-2.5 rounded-2xl text-white shadow-xl shadow-indigo-100"><Layout size={26} /></div>
-                    <h1 className="text-xl font-black tracking-tighter text-indigo-600 uppercase">Edu Builder</h1>
+
+            {/* [Modern Sidebar] Glassmorphism & Clean Typography */}
+            <aside className="w-72 bg-white/80 backdrop-blur-2xl border-r border-slate-100/50 p-8 flex flex-col gap-10 z-20 shadow-[4px_0_24px_-12px_rgba(0,0,0,0.05)]">
+                <div className="flex items-center gap-4 px-2">
+                    <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 p-3 rounded-2xl text-white shadow-lg shadow-indigo-200 ring-4 ring-indigo-50">
+                        <Layout size={28} strokeWidth={2.5} />
+                    </div>
+                    <div>
+                        <h1 className="text-xl font-bold tracking-tight text-slate-900 leading-none mb-1">Edu Builder</h1>
+                        <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest bg-indigo-50 px-2 py-0.5 rounded-full inline-block">AI Powered</span>
+                    </div>
                 </div>
-                <nav className="flex flex-col gap-2 flex-1">
-                    <button onClick={() => setActiveTab('analysis')} className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'analysis' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-100'}`}><BookOpen size={20} /><span className="font-bold text-sm">교과서 분석</span></button>
-                    <button onClick={() => setActiveTab('storyboard')} className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'storyboard' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-100'}`}><Layers size={20} /><span className="font-bold text-sm">스토리보드</span></button>
-                    <button onClick={() => setActiveTab('builder')} className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'builder' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-100'}`}><Calculator size={20} /><span className="font-bold text-sm">콘텐츠 생성</span></button>
-                    <button onClick={() => setActiveTab('library')} className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'library' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-100'}`}><HardDrive size={20} /><span className="font-bold text-sm">템플릿 업로드</span></button>
+
+                <nav className="flex flex-col gap-3 flex-1">
+                    {[
+                        { id: 'analysis', icon: BookOpen, label: '교과서 분석' },
+                        { id: 'storyboard', icon: Layers, label: '스토리보드' },
+                        { id: 'builder', icon: Calculator, label: '콘텐츠 생성' },
+                        { id: 'library', icon: HardDrive, label: '라이브러리' }
+                    ].map(item => (
+                        <button
+                            key={item.id}
+                            onClick={() => setActiveTab(item.id)}
+                            className={`group flex items-center gap-4 px-5 py-4 rounded-[1.2rem] transition-all duration-300 ease-out border ${activeTab === item.id
+                                ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-200 border-indigo-500 translate-x-2'
+                                : 'bg-transparent text-slate-500 border-transparent hover:bg-slate-50 hover:text-slate-900 hover:border-slate-100'
+                                }`}
+                        >
+                            <item.icon size={22} strokeWidth={activeTab === item.id ? 2.5 : 2} className={`transition-transform duration-300 ${activeTab === item.id ? 'scale-110' : 'group-hover:scale-110'}`} />
+                            <span className="font-bold text-[15px] tracking-tight">{item.label}</span>
+                            {activeTab === item.id && <ChevronRight size={16} className="ml-auto opacity-50" />}
+                        </button>
+                    ))}
                 </nav>
+
+                <div className="px-4 py-6 bg-slate-50 rounded-3xl border border-slate-100 text-center">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">System Status</p>
+                    <div className="flex items-center justify-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="text-xs font-bold text-slate-600">Online & Ready</span>
+                    </div>
+                </div>
             </aside>
 
             <main className="flex-1 overflow-y-auto relative custom-scrollbar p-10">
@@ -916,36 +971,58 @@ const App = () => {
                     </div>
                 )}
 
-                <div className="max-w-6xl mx-auto">
-                    <header className="flex justify-between items-end mb-12">
+                <div className="max-w-7xl mx-auto">
+                    <header className="flex justify-between items-end mb-16 px-4">
                         <div>
-                            <h2 className="text-4xl font-black text-slate-800 tracking-tight">
-                                {activeTab === 'analysis' && "1. 교과서 분석"}
-                                {activeTab === 'storyboard' && "2. 스토리보드 리뷰"}
-                                {activeTab === 'builder' && "3. 콘텐츠 자동 생성"}
+                            <h2 className="text-4xl lg:text-5xl font-extrabold text-slate-900 tracking-tighter leading-tight drop-shadow-sm">
+                                {activeTab === 'analysis' && "교과서 분석"}
+                                {activeTab === 'storyboard' && "스토리보드 리뷰"}
+                                {activeTab === 'builder' && "콘텐츠 자동 생성"}
                                 {activeTab === 'library' && "템플릿 라이브러리"}
                             </h2>
-                            <p className="text-slate-400 font-bold mt-2">Kim Hwa-kyung Specialized Integrated Platform</p>                        </div>
+                            <p className="text-slate-500 font-medium mt-3 text-lg">Kim Hwa-kyung Specialized Integrated Platform</p>
+                        </div>
                         <div className="flex gap-4">
-                            {activeTab === 'analysis' && <button onClick={runAnalysis} className="px-10 py-4 bg-indigo-600 text-white rounded-[1.5rem] font-black shadow-xl shadow-indigo-100 hover:scale-105 active:scale-95 transition-all">분석 실행</button>}
-                            {activeTab === 'storyboard' && <button onClick={generatePPTX} className="flex items-center gap-2 px-10 py-4 bg-indigo-600 text-white rounded-[1.5rem] font-black shadow-xl shadow-indigo-100 hover:scale-105 transition-all"><Download size={20} />PPTX 다운로드</button>}
+                            {activeTab === 'analysis' && (
+                                <button onClick={runAnalysis} className="px-10 py-4 bg-gray-900 text-white rounded-full font-bold text-lg shadow-xl shadow-gray-200 hover:scale-[1.02] hover:shadow-2xl active:scale-95 transition-all flex items-center gap-3">
+                                    <MonitorPlay size={20} /> 분석 시작
+                                </button>
+                            )}
+                            {activeTab === 'storyboard' && (
+                                <button onClick={generatePPTX} className="flex items-center gap-2 px-8 py-3 bg-indigo-600 text-white rounded-full font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 hover:shadow-xl hover:scale-105 transition-all">
+                                    <Download size={20} /> PPTX 다운로드
+                                </button>
+                            )}
                         </div>
                     </header>
 
                     {activeTab === 'analysis' && (
-                        <div className="space-y-10 animate-in slide-in-from-bottom-8 duration-700">
-                            <div onClick={() => builderImageInputRef.current.click()} className="group border-4 border-dashed border-slate-200 rounded-[4rem] p-24 flex flex-col items-center justify-center bg-white hover:bg-indigo-50 hover:border-indigo-400 transition-all cursor-pointer shadow-sm">
+                        <div className="space-y-12 animate-in slide-in-from-bottom-8 duration-700 fade-in">
+                            <div
+                                onClick={() => builderImageInputRef.current.click()}
+                                className="group relative border-4 border-dashed border-slate-200/80 rounded-[3rem] p-24 flex flex-col items-center justify-center bg-white hover:border-indigo-400 hover:bg-indigo-50/30 transition-all cursor-pointer shadow-sm hover:shadow-2xl hover:shadow-indigo-100/50 overflow-hidden"
+                            >
+                                <div className="absolute inset-0 bg-grid-slate-100 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))] -z-10 group-hover:opacity-100 transition-opacity" />
                                 <input ref={builderImageInputRef} type="file" multiple accept="image/*" onChange={(e) => setAnalysisImages(Array.from(e.target.files).map(f => ({ id: Math.random(), file: f, preview: URL.createObjectURL(f) })))} className="hidden" />
-                                <div className="p-10 bg-indigo-50 rounded-[2.5rem] text-indigo-600 mb-8 group-hover:scale-110 group-hover:bg-indigo-100 transition-all shadow-inner"><Upload size={72} /></div>
-                                <h3 className="text-3xl font-black text-slate-800">교과서 원고 업로드</h3>
-                                <p className="text-slate-400 font-bold mt-3">수학 김화경 교과서를 캡처한 png 파일을 최대 3장 업로드하면 한 번에 분석하여 스토리보드를 생성합니다.</p>
+
+                                <div className="p-8 bg-white rounded-[2rem] text-indigo-600 mb-8 group-hover:scale-110 group-hover:rotate-3 transition-all duration-300 shadow-[0_8px_30px_rgb(0,0,0,0.04)] ring-1 ring-slate-100">
+                                    <Upload size={64} strokeWidth={1.5} />
+                                </div>
+                                <h3 className="text-3xl font-bold text-slate-800 tracking-tight text-center">교과서 원고 업로드</h3>
+                                <p className="text-slate-500 font-medium mt-4 text-center max-w-lg leading-relaxed">
+                                    최대 3장의 교과서 png를 업로드하면 한 번에 분석하여 스토리보드를 생성합니다.<br />
+                                    <span className="text-indigo-500 font-bold">AI가 자동으로 콘텐츠 유형 판별 및 텍스트 추출, 정답 및 해설 내용을 작성합니다. <br /> AI는 실수를 할 수 있습니다.</span>
+                                </p>
                             </div>
                             <div className="grid grid-cols-3 gap-8">
                                 {analysisImages.map(img => (
-                                    <div key={img.id} className="relative rounded-[3rem] overflow-hidden border-2 border-slate-100 shadow-xl group">
-                                        <img src={img.preview} className="w-full h-64 object-cover" />
-                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                            <button onClick={() => setAnalysisImages(prev => prev.filter(i => i.id !== img.id))} className="p-4 bg-red-500 text-white rounded-2xl hover:scale-110 transition-transform"><X size={24} /></button>
+                                    <div key={img.id} className="relative rounded-[2.5rem] overflow-hidden border border-slate-200 shadow-md group hover:scale-[1.02] hover:shadow-xl transition-all duration-500 bg-white">
+                                        <div className="absolute top-4 right-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button onClick={() => setAnalysisImages(prev => prev.filter(i => i.id !== img.id))} className="p-3 bg-white/90 backdrop-blur-md text-rose-500 rounded-full hover:bg-rose-50 transition-colors shadow-sm"><Trash2 size={20} /></button>
+                                        </div>
+                                        <img src={img.preview} className="w-full h-72 object-cover" />
+                                        <div className="absolute inset-x-0 bottom-0 p-6 bg-gradient-to-t from-black/60 to-transparent">
+                                            <p className="text-white font-bold text-sm">교과서 이미지</p>
                                         </div>
                                     </div>
                                 ))}
@@ -954,51 +1031,68 @@ const App = () => {
                     )}
 
                     {activeTab === 'storyboard' && (
-                        <div className="space-y-12 animate-in fade-in duration-500 pb-20">
+                        <div className="space-y-16 animate-in fade-in duration-500 pb-32">
                             {pages.length > 0 ? pages.map((page, pIdx) => (
-                                <div key={page.id} className="bg-white rounded-[4rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col group hover:shadow-2xl transition-all duration-500">
-                                    <div className="bg-slate-50 px-10 py-5 border-b border-slate-100 flex items-center justify-between">
-                                        <div className="flex items-center gap-5">
-                                            <span className="w-12 h-12 bg-indigo-600 text-white rounded-[1.25rem] flex items-center justify-center font-black text-lg shadow-lg">P.{pIdx + 1}</span>
-                                            <span className="font-black text-slate-800 text-xl tracking-tight uppercase">{page.type} — {page.title}</span>
+                                <div key={page.id} className="bg-white rounded-[3rem] p-2 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.05)] border border-slate-100 group">
+                                    <div className="flex flex-col lg:flex-row h-full">
+                                        {/* Metadata Sider */}
+                                        <div className="lg:w-80 p-8 flex flex-col gap-6 border-b lg:border-b-0 lg:border-r border-slate-100">
+                                            <div className="flex items-center gap-4 mb-4">
+                                                <span className="w-14 h-14 bg-indigo-600 text-white rounded-[1.5rem] flex items-center justify-center font-black text-xl shadow-lg shadow-indigo-200">
+                                                    {pIdx + 1}
+                                                </span>
+                                                <div>
+                                                    <span className="block text-[10px] font-bold text-indigo-400 uppercase tracking-widest">Page Sequence</span>
+                                                    <span className="font-black text-slate-800 text-lg tracking-tight">Main Flow</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-1">
+                                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Type</span>
+                                                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold text-slate-700">
+                                                    {page.type}
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-1">
+                                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Title</span>
+                                                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold text-slate-700 leading-snug">
+                                                    {page.title}
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-auto pt-4 flex gap-2 opacity-50 hover:opacity-100 transition-opacity">
+                                                <GripVertical className="text-slate-300 cursor-move" />
+                                                <span className="text-xs font-bold text-slate-400">Drag to Reorder</span>
+                                            </div>
                                         </div>
-                                        <GripVertical className="text-slate-300 cursor-move" />
-                                    </div>
-                                    <div className="p-12 grid grid-cols-1 lg:grid-cols-3 gap-12">
-                                        <div className="lg:col-span-2 space-y-8">
-                                            <label className="text-xs font-black uppercase text-slate-400 tracking-widest block ml-3">Manuscript & Interaction Preview</label>
-                                            <div className="bg-indigo-50/20 p-12 rounded-[3.5rem] border border-indigo-50 min-h-[450px] relative shadow-inner">
-                                                <img src={ASSETS.TITLES[page.type] || ASSETS.TITLES['개념']} className="h-9 mb-8 object-contain" />
-                                                <div className="space-y-10">
-                                                    <h4 className="text-2xl font-black text-slate-800 leading-snug">{page.content}</h4>
-                                                    <div className="space-y-10 mt-12 pl-4">
+
+                                        {/* Content Preview */}
+                                        <div className="flex-1 p-10 bg-slate-50/50">
+                                            <label className="text-[10px] font-black uppercase text-indigo-300 tracking-widest block mb-6">Visual Preview</label>
+                                            <div className="bg-white p-12 rounded-[2.5rem] border border-slate-200 shadow-sm relative min-h-[500px]">
+                                                <img src={ASSETS.TITLES[page.type] || ASSETS.TITLES['개념']} className="h-10 mb-10 object-contain brightness-95" />
+                                                <div className="space-y-12">
+                                                    <h4 className="text-3xl font-bold text-slate-800 leading-snug tracking-tight">{page.content}</h4>
+                                                    <div className="space-y-6 mt-8 pl-2 border-l-2 border-slate-100">
                                                         {page.subQuestions.length > 0 ? page.subQuestions.map((sq, i) => (
-                                                            <div key={i} className="flex items-center justify-between gap-10 p-6 bg-white/80 rounded-[2.5rem] border border-white shadow-sm hover:translate-x-2 transition-transform">
-                                                                <div className="text-xl font-bold leading-relaxed flex-1">{renderMathToHTML(sq.text)}</div>
-                                                                {page.type === '문제' && (
-                                                                    <div className="flex flex-col items-end gap-3">
-                                                                        <div className="w-40 h-12 bg-white border-2 border-slate-100 rounded-[1.25rem] shadow-inner"></div>
-                                                                        <img src={ASSETS.BUTTONS['CHECK']} className="h-7 drop-shadow-sm" alt="check" />
-                                                                    </div>
-                                                                )}
+                                                            <div key={i} className="flex items-start gap-6 p-6 bg-slate-50 rounded-[2rem] hover:bg-indigo-50/30 transition-colors">
+                                                                <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-black text-slate-500 mt-1">{sq.label || i + 1}</div>
+                                                                <div className="text-lg font-medium text-slate-700 leading-relaxed flex-1">{renderMathToHTML(sq.text)}</div>
                                                             </div>
                                                         )) : (
-                                                            <div className="text-lg leading-loose text-slate-600 whitespace-pre-wrap">{renderMathToHTML(page.body)}</div>
+                                                            <div className="text-xl leading-relaxed text-slate-600 font-medium whitespace-pre-wrap">{renderMathToHTML(page.body)}</div>
                                                         )}
                                                     </div>
                                                 </div>
-                                                {page.type !== '개념' && page.subQuestions.length === 0 && (
-                                                    <div className="absolute bottom-10 right-10 flex gap-4">
-                                                        <img src={ASSETS.BUTTONS['RETRY']} className="h-10 opacity-60" alt="retry" />
-                                                        <img src={ASSETS.BUTTONS['CHECK']} className="h-10 shadow-xl" alt="check" />
-                                                    </div>
-                                                )}
                                             </div>
                                         </div>
-                                        <div className="lg:col-span-1 space-y-8">
-                                            <label className="text-xs font-black uppercase text-slate-400 tracking-widest block ml-3">System Logic Description</label>
+
+                                        {/* Logic Description */}
+                                        <div className="lg:w-96 bg-slate-900 p-8 text-slate-300 flex flex-col">
+                                            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest block mb-6">Interaction Logic</label>
                                             <textarea
-                                                className="w-full h-full min-h-[450px] bg-slate-900 text-emerald-400 p-10 rounded-[3.5rem] font-mono text-xs leading-relaxed border-none shadow-2xl focus:ring-0"
+                                                className="w-full flex-1 bg-transparent text-emerald-400 font-mono text-xs leading-relaxed border-none focus:ring-0 p-0 resize-none selection:bg-emerald-900"
                                                 value={page.description[0].text}
                                                 onChange={(e) => {
                                                     const newPages = [...pages];
@@ -1011,8 +1105,8 @@ const App = () => {
                                 </div>
                             )) : (
                                 <div className="py-40 text-center flex flex-col items-center gap-6">
-                                    <div className="bg-slate-100 p-10 rounded-full text-slate-300"><Layers size={80} /></div>
-                                    <p className="font-bold text-slate-400 text-xl">데이터가 없습니다. 1단계에서 교과서를 분석하세요.</p>
+                                    <div className="bg-white p-8 rounded-[2.5rem] text-indigo-200 shadow-xl shadow-indigo-50 border border-indigo-50"><Layers size={64} /></div>
+                                    <p className="font-bold text-slate-400 text-xl max-w-md mx-auto leading-relaxed">No storyboard data found.<br />Please proceed with <span className="text-indigo-500">Textbook Analysis</span> first.</p>
                                 </div>
                             )}
                         </div>
@@ -1164,44 +1258,53 @@ const App = () => {
                                                 </div>
                                             )}
 
-                                            <div className="flex items-center justify-between">
-                                                <h3 className="text-3xl font-black tracking-tight">Page {buildPages[activePageIndex].id} Data</h3>
-                                                <span className="bg-emerald-100 text-emerald-600 px-4 py-1.5 rounded-2xl text-[10px] font-black uppercase border border-emerald-200">Engine Ready</span>
+                                            <div className="flex items-center justify-between mt-8">
+                                                <h3 className="text-3xl font-extrabold tracking-tight text-slate-900">Page {buildPages[activePageIndex].id} Data</h3>
+                                                <span className="bg-emerald-50 text-emerald-600 px-4 py-1.5 rounded-full text-[10px] font-bold uppercase border border-emerald-100 flex items-center gap-2">
+                                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Engine Ready
+                                                </span>
                                             </div>
-                                            <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100 space-y-4">
-                                                <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block ml-2">Extracted Main Question</label>
-                                                <input className="w-full bg-white p-4 rounded-2xl border border-slate-200 font-black text-lg" value={buildPages[activePageIndex].data.mainQuestion} onChange={e => updateCurrentPageData({ ...buildPages[activePageIndex].data, mainQuestion: e.target.value })} />
 
-                                                <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block ml-2 mt-2">Guide Text</label>
-                                                <input className="w-full bg-white p-4 rounded-2xl border border-slate-200 font-bold text-sm text-slate-600" value={buildPages[activePageIndex].data.guideText || ""} onChange={e => updateCurrentPageData({ ...buildPages[activePageIndex].data, guideText: e.target.value })} />
+                                            <div className="p-8 bg-white rounded-[2.5rem] border border-slate-200 shadow-sm space-y-6">
+                                                <div>
+                                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1 mb-2">Main Question</label>
+                                                    <input className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 font-bold text-lg text-slate-800 focus:bg-white transition-all" value={buildPages[activePageIndex].data.mainQuestion} onChange={e => updateCurrentPageData({ ...buildPages[activePageIndex].data, mainQuestion: e.target.value })} />
+                                                </div>
+                                                <div>
+                                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1 mb-2">Guide Text</label>
+                                                    <input className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 font-medium text-sm text-slate-600 focus:bg-white transition-all" value={buildPages[activePageIndex].data.guideText || ""} onChange={e => updateCurrentPageData({ ...buildPages[activePageIndex].data, guideText: e.target.value })} />
+                                                </div>
                                             </div>
-                                            <div className="space-y-6 max-h-[400px] overflow-y-auto pr-4 custom-scrollbar">
+                                            <div className="space-y-6 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
                                                 {/* Case 1: SubQuestions (General) */}
                                                 {buildPages[activePageIndex].data.subQuestions && buildPages[activePageIndex].data.subQuestions.map((item, i) => (
-                                                    <div key={i} className="p-6 bg-white border-2 border-slate-100 rounded-[2.5rem] space-y-4 shadow-sm">
-                                                        <div className="flex items-center gap-4">
-                                                            <span className="w-8 h-8 bg-slate-900 text-white rounded-lg flex items-center justify-center font-black text-xs">{item.label || i + 1}</span>
-                                                            <div className="flex-1">
-                                                                <label className="text-[10px] font-bold text-slate-400 uppercase">Passage</label>
-                                                                <textarea rows={2} className="w-full p-2 text-sm font-bold border-b border-slate-100 focus:border-indigo-400 outline-none resize-none" value={item.passage || ""} onChange={(e) => {
+                                                    <div key={i} className="p-8 bg-white border border-slate-100 rounded-[2.5rem] space-y-6 shadow-sm hover:shadow-md transition-shadow relative group">
+                                                        <div className="absolute top-6 right-6 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <GripVertical className="text-slate-300" />
+                                                        </div>
+                                                        <div className="flex items-start gap-5">
+                                                            <span className="w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center font-bold text-sm shadow-lg shadow-slate-200">{item.label || i + 1}</span>
+                                                            <div className="flex-1 space-y-2">
+                                                                <label className="text-[10px] font-bold text-slate-400 uppercase">Passage Content</label>
+                                                                <textarea rows={2} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-medium border-0 focus:ring-2 focus:ring-indigo-100 outline-none resize-none transition-all" value={item.passage || ""} onChange={(e) => {
                                                                     const newSub = [...buildPages[activePageIndex].data.subQuestions];
                                                                     newSub[i].passage = e.target.value;
                                                                     updateCurrentPageData({ ...buildPages[activePageIndex].data, subQuestions: newSub });
                                                                 }} />
                                                             </div>
                                                         </div>
-                                                        <div className="grid grid-cols-2 gap-4">
+                                                        <div className="grid grid-cols-2 gap-6">
                                                             <div>
-                                                                <label className="text-[10px] font-bold text-emerald-500 uppercase">Answer</label>
-                                                                <input className="w-full p-2 bg-emerald-50 rounded-xl text-xs font-bold text-emerald-700 outline-none" value={item.answer || ""} onChange={(e) => {
+                                                                <label className="text-[10px] font-bold text-emerald-500 uppercase mb-2 block">Correct Answer</label>
+                                                                <input className="w-full p-3 bg-emerald-50/50 border border-emerald-100 rounded-xl text-sm font-bold text-emerald-700 outline-none focus:ring-2 focus:ring-emerald-100 transition-all" value={item.answer || ""} onChange={(e) => {
                                                                     const newSub = [...buildPages[activePageIndex].data.subQuestions];
                                                                     newSub[i].answer = e.target.value;
                                                                     updateCurrentPageData({ ...buildPages[activePageIndex].data, subQuestions: newSub });
                                                                 }} />
                                                             </div>
                                                             <div>
-                                                                <label className="text-[10px] font-bold text-indigo-400 uppercase">Explanation</label>
-                                                                <input className="w-full p-2 bg-indigo-50 rounded-xl text-xs font-bold text-indigo-700 outline-none" value={item.explanation || ""} onChange={(e) => {
+                                                                <label className="text-[10px] font-bold text-indigo-400 uppercase mb-2 block">Explanation</label>
+                                                                <input className="w-full p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl text-sm font-bold text-indigo-700 outline-none focus:ring-2 focus:ring-indigo-100 transition-all" value={item.explanation || ""} onChange={(e) => {
                                                                     const newSub = [...buildPages[activePageIndex].data.subQuestions];
                                                                     newSub[i].explanation = e.target.value;
                                                                     updateCurrentPageData({ ...buildPages[activePageIndex].data, subQuestions: newSub });
@@ -1249,8 +1352,8 @@ const App = () => {
                                                     </div>
                                                 ))}
                                             </div>
-                                            <button onClick={onClickZip} className="w-full py-10 bg-slate-900 text-white rounded-[3rem] font-black text-3xl shadow-2xl hover:bg-black hover:scale-[1.01] active:scale-95 transition-all flex items-center justify-center gap-6">
-                                                <Download size={32} /> ZIP PACKAGING & DOWNLOAD
+                                            <button onClick={onClickZip} className="w-full py-7 bg-slate-900 text-white rounded-[3rem] font-black text-xl shadow-2xl hover:bg-black hover:scale-[1.01] active:scale-95 transition-all flex items-end justify-center gap-6">
+                                                <Download size={32} /> 콘텐츠 다운로드
                                             </button>
                                         </div>
                                     ) : (
@@ -1265,30 +1368,41 @@ const App = () => {
                     )}
 
                     {activeTab === 'library' && (
-                        <div className="grid grid-cols-2 gap-12 animate-in fade-in duration-500">
-                            <div className="bg-white p-16 rounded-[4.5rem] border border-slate-200 shadow-sm relative overflow-hidden group">
-                                <h3 className="text-3xl font-black mb-10">Add Template</h3>
-                                <div onClick={() => templateZipInputRef.current.click()} className="aspect-video bg-indigo-50 border-4 border-dashed border-indigo-100 rounded-[3.5rem] flex flex-col items-center justify-center text-indigo-600 cursor-pointer hover:bg-indigo-100 hover:border-indigo-300 transition-all shadow-inner">
+                        <div className="grid grid-cols-2 gap-12 animate-in fade-in duration-500 pb-20">
+                            <div className="bg-white p-12 rounded-[3.5rem] border border-slate-200 shadow-sm relative overflow-hidden group flex flex-col">
+                                <h3 className="text-3xl font-black mb-8 text-slate-800 tracking-tight">Add New Template</h3>
+                                <div onClick={() => templateZipInputRef.current.click()} className="flex-1 min-h-[400px] bg-slate-50 border-4 border-dashed border-indigo-100 rounded-[2.5rem] flex flex-col items-center justify-center text-indigo-400 cursor-pointer hover:bg-indigo-50/50 hover:border-indigo-300 hover:text-indigo-600 transition-all shadow-inner group-hover:scale-[1.02] duration-500">
                                     <input ref={templateZipInputRef} type="file" accept=".zip" onChange={uploadTemplate} className="hidden" />
-                                    <Plus className="group-hover:rotate-90 transition-transform mb-4" size={80} />
-                                    <p className="font-black uppercase tracking-widest text-xs">Drop ZIP Template Here</p>
+                                    <div className="bg-white p-6 rounded-full shadow-lg mb-6 group-hover:rotate-90 transition-transform duration-500 border border-indigo-50">
+                                        <Plus className="text-indigo-500" size={48} />
+                                    </div>
+                                    <p className="font-black uppercase tracking-widest text-xs mb-2">Drop ZIP Template Here</p>
+                                    <span className="text-[10px] font-bold text-slate-400">Supported formats: .zip containing templates</span>
                                 </div>
                             </div>
-                            <div className="bg-white p-16 rounded-[4.5rem] border border-slate-200 shadow-sm flex flex-col">
-                                <h3 className="text-3xl font-black mb-10 flex justify-between items-center">Library Index <span className="bg-indigo-100 text-indigo-600 px-4 py-1 rounded-2xl text-sm shadow-sm">{templates.length}</span></h3>
-                                <div className="space-y-5 overflow-y-auto max-h-[500px] pr-4 custom-scrollbar">
+                            <div className="bg-white p-12 rounded-[3.5rem] border border-slate-200 shadow-sm flex flex-col">
+                                <div className="flex justify-between items-center mb-10">
+                                    <h3 className="text-3xl font-black text-slate-800 tracking-tight">Library Index</h3>
+                                    <span className="bg-slate-100 text-slate-600 px-4 py-2 rounded-2xl text-xs font-black shadow-sm border border-slate-200">{templates.length} Items</span>
+                                </div>
+                                <div className="space-y-4 overflow-y-auto max-h-[600px] pr-2 custom-scrollbar">
                                     {templates.sort((a, b) => b.createdAt - a.createdAt).map(t => (
-                                        <div key={t.id} className="flex items-center justify-between p-6 bg-slate-50 rounded-[2.5rem] border border-slate-100 hover:bg-white hover:shadow-2xl transition-all group">
+                                        <div key={t.id} className="flex items-center justify-between p-6 bg-slate-50 rounded-[2rem] border border-slate-100 hover:border-indigo-200 hover:bg-white hover:shadow-xl transition-all group">
                                             <div className="flex items-center gap-5">
-                                                <div className={`p-4 rounded-2xl ${t.type === 'together' ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'}`}><FileCode size={24} /></div>
+                                                <div className={`p-4 rounded-2xl ${t.type === 'together' ? 'bg-amber-100 text-amber-600 shadow-amber-100' : 'bg-indigo-100 text-indigo-600 shadow-indigo-100'} shadow-md`}>
+                                                    <FileCode size={24} strokeWidth={2.5} />
+                                                </div>
                                                 <div>
-                                                    <p className="font-black text-slate-800 text-lg leading-none mb-2">{t.name}</p>
-                                                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{t.type} type</span>
+                                                    <p className="font-bold text-slate-800 text-lg leading-tight mb-1">{t.name}</p>
+                                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 bg-white px-2 py-0.5 rounded-md border border-slate-100">{t.type || 'Standard'}</span>
                                                 </div>
                                             </div>
-                                            <button onClick={async () => await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'templates', t.id))} className="p-4 text-slate-200 hover:text-red-500 transition-colors"><Trash2 size={24} /></button>
+                                            <button onClick={async (e) => { e.stopPropagation(); if (window.confirm('Delete template?')) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'templates', t.id)) }} className="p-3 bg-white text-slate-300 rounded-xl hover:bg-rose-50 hover:text-rose-500 transition-colors shadow-sm"><Trash2 size={20} /></button>
                                         </div>
                                     ))}
+                                    {templates.length === 0 && (
+                                        <div className="text-center py-20 text-slate-400 font-medium">No templates found.<br />Upload one to get started.</div>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -1297,11 +1411,12 @@ const App = () => {
             </main>
 
             <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; border: 2px solid #f8fafc; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; border: 2px solid transparent; background-clip: content-box; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        @keyframes zoom-in { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-in { animation: fade-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
       `}</style>
         </div>
     );

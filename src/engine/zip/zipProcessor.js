@@ -270,6 +270,8 @@ export async function processAndDownloadZip({
             if (!hasBounds && blob.type) {
               ext = blob.type.split('/')[1] || 'png';
             }
+            console.log("figureBounds:", skeletonConfig.figureBounds);
+            console.log("hasBounds:", hasBounds);
             const finalFilename = `content_${pNumStr}.${ext}`;
             const imagesDir = pathPrefix + "images/";
             const fullPath = `${imagesDir}${finalFilename}`;
