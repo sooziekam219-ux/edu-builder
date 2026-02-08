@@ -15,6 +15,20 @@ import { processAndDownloadZip } from "./engine/zip/zipProcessor";
 import { TYPE_KEYS } from "./engine/typeKeys";
 console.log("App.js loaded");
 
+
+/* 익명 로그인*/
+import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
+
+const auth = getAuth(app);
+useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
+        if (!u) await signInAnonymously(auth);
+    });
+    return () => unsub();
+}, []);
+
+
+
 // --- Constants & Assets ---
 const JSZIP_CDN = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
 const PPTX_CDN = "https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs@3.12.0/dist/pptxgen.bundle.js";
