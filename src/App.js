@@ -16,17 +16,6 @@ import { TYPE_KEYS } from "./engine/typeKeys";
 console.log("App.js loaded");
 
 
-/* 익명 로그인*/
-const auth = getAuth(app);
-useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-        if (!u) await signInAnonymously(auth);
-    });
-    return () => unsub();
-}, []);
-
-
-
 // --- Constants & Assets ---
 const JSZIP_CDN = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
 const PPTX_CDN = "https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs@3.12.0/dist/pptxgen.bundle.js";
@@ -91,9 +80,12 @@ try {
     throw new Error("REACT_APP_FIREBASE_CONFIG JSON 파싱 실패: " + e.message);
 }
 const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = 'edu-builder-integrated-v5';
 const CHUNK_SIZE = 500 * 1024;
+
+
 
 // --- Prompts ---
 const KIM_HWA_KYUNG_PROMPT = `
@@ -242,6 +234,14 @@ const App = () => {
     //         detectedTypeKey = "together.select";
     // }
 
+
+    /* 익명 로그인*/
+    useEffect(() => {
+        const unsub = onAuthStateChanged(auth, async (u) => {
+            if (!u) await signInAnonymously(auth);
+        });
+        return () => unsub();
+    }, []);
     // ================================
     // [NEW] Detection Logic (Family vs Type)
     // ================================
