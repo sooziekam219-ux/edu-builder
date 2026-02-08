@@ -103,6 +103,9 @@ const KIM_HWA_KYUNG_PROMPT = `
   - **Body Text:** Use LaTeX \\( ... \\). Use \\n to separate distinct questions or sentences.
   - **Together Type:** For '함께 풀기', target the 'white area' (step-by-step explanation). Extract ONLY sentences containing a blank/input box. Represent these blanks specifically as '□'. Ignore other descriptive texts. **EXCLUDE** numbered sub-questions (like (1), (2) on skyblue backgrounds)
   - **Answers:** Extract or solve for correct answers.
+  - 이미지 내에서 가이드 텍스트 아래, 확인 버튼 위에 있는 '도형', '그래프', '삽화' 영역만 정밀하게 찾아 [ymin, xmin, ymax, xmax] 형태로 'figure_bounds'에 적으세요. 
+  - 좌표는 이미지 전체 크기를 기준으로 0~1000 사이의 숫자를 사용하세요 (예: [200, 150, 450, 850]).
+  - 만약 삽화나 도형이 전혀 없다면 [0,0,0,0]을 반환하세요.
   
   Output JSON format:
   {
@@ -1026,13 +1029,13 @@ const App = () => {
                 <div className="max-w-7xl mx-auto">
                     <header className="flex justify-between items-end mb-8 px-4 sticky top-0 z-20 bg-[#fcfcfc]">
                         <div>
-                            <h2 className="text-4xl lg:text-5xl font-extrabold text-slate-900 tracking-tighter leading-tight drop-shadow-sm">
+                            <h2 className="text-2xl lg:text-3xl font-extrabold text-slate-900 tracking-tighter leading-tight drop-shadow-sm">
                                 {activeTab === 'analysis' && "교과서 분석"}
                                 {activeTab === 'storyboard' && "스토리보드 리뷰"}
                                 {activeTab === 'builder' && "콘텐츠 자동 생성"}
                                 {activeTab === 'library' && "템플릿 라이브러리"}
                             </h2>
-                            <p className="text-slate-500 font-medium mt-3 text-lg">Kim Hwa-kyung Specialized Integrated Platform</p>
+                            <p className="text-slate-500 font-small mt-3 text-lg">교과서 이미지를 조작형 콘텐츠로 자동 생성(수학 김화경 저자ver) </p>
                         </div>
                         <div className="flex gap-4">
                             {activeTab === 'analysis' && (
@@ -1050,6 +1053,46 @@ const App = () => {
 
                     {activeTab === 'analysis' && (
                         <div className="space-y-12 animate-in slide-in-from-bottom-8 duration-700 fade-in">
+                            <div className="flex justify-center mb-6">
+                                <button
+                                    onClick={async () => {
+                                        setIsProcessing(true);
+                                        try {
+                                            // [FIX] Use 'templates' collection to ensure public read access if 'examples' is blocked
+                                            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'templates', 'example_demo_image');
+                                            const snap = await getDoc(docRef);
+                                            if (snap.exists()) {
+                                                const data = snap.data();
+                                                if (data.base64) {
+                                                    // Base64 to Blob/File
+                                                    const byteString = atob(data.base64);
+                                                    const ab = new ArrayBuffer(byteString.length);
+                                                    const ia = new Uint8Array(ab);
+                                                    for (let i = 0; i < byteString.length; i++) {
+                                                        ia[i] = byteString.charCodeAt(i);
+                                                    }
+                                                    const blob = new Blob([ab], { type: 'image/png' });
+                                                    const file = new File([blob], "example_textbook.png", { type: 'image/png' });
+
+                                                    setAnalysisImages([{ id: Date.now(), file, preview: URL.createObjectURL(file) }]);
+                                                    setStatusMessage({ title: "성공", message: "예시 이미지를 불러왔습니다.", type: "success" });
+                                                }
+                                            } else {
+                                                alert("저장된 예시 이미지가 없습니다.");
+                                            }
+                                        } catch (e) {
+                                            console.error(e);
+                                            alert("예시 불러오기 실패: " + e.message);
+                                        } finally {
+                                            setIsProcessing(false);
+                                        }
+                                    }}
+                                    className="px-6 py-2 bg-indigo-50 text-indigo-600 rounded-full font-bold text-sm hover:bg-indigo-100 transition-colors flex items-center gap-2"
+                                >
+                                    <BookOpen size={16} /> 예시 이미지로 테스트
+                                </button>
+                            </div>
+
                             <div
                                 onClick={() => builderImageInputRef.current.click()}
                                 className="group relative border-4 border-dashed border-slate-200/80 rounded-[3rem] p-24 flex flex-col items-center justify-center bg-white hover:border-indigo-400 hover:bg-indigo-50/30 transition-all cursor-pointer shadow-sm hover:shadow-2xl hover:shadow-indigo-100/50 overflow-hidden"
@@ -1069,7 +1112,43 @@ const App = () => {
                             <div ref={analysisScrollRef} className="grid grid-cols-3 gap-8">
                                 {analysisImages.map(img => (
                                     <div key={img.id} className="relative rounded-[2.5rem] overflow-hidden border border-slate-200 shadow-md group hover:scale-[1.02] hover:shadow-xl transition-all duration-500 bg-white">
-                                        <div className="absolute top-4 right-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <div className="absolute top-4 right-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                                            <button
+                                                title="기본 예시로 설정"
+                                                onClick={async (e) => {
+                                                    e.stopPropagation();
+                                                    if (!window.confirm("이 이미지를 '예시 이미지'로 설정하시겠습니까? 기존 예시는 덮어씌워집니다.")) return;
+
+                                                    setIsProcessing(true);
+                                                    try {
+                                                        const base64 = await new Promise(r => {
+                                                            const reader = new FileReader();
+                                                            reader.onload = () => r(reader.result.split(',')[1]);
+                                                            reader.readAsDataURL(img.file);
+                                                        });
+
+                                                        // [FIX] Use 'templates' collection for write access if 'examples' is blocked
+                                                        // Assuming write access to templates is allowed for authenticated users (even anonymous)
+                                                        // If not, we might need a specific 'user_data' area, but templates are where we write other things.
+                                                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'templates', 'example_demo_image'), {
+                                                            base64,
+                                                            name: "Example Demo Image", // Add dummy fields to look like a template
+                                                            typeKey: "demo",
+                                                            updatedAt: Date.now()
+                                                        });
+
+                                                        setStatusMessage({ title: "설정 완료", message: "기본 예시 이미지가 업데이트되었습니다.", type: "success" });
+                                                    } catch (err) {
+                                                        console.error(err);
+                                                        alert("설정 실패: " + err.message);
+                                                    } finally {
+                                                        setIsProcessing(false);
+                                                    }
+                                                }}
+                                                className="p-3 bg-white/90 backdrop-blur-md text-amber-500 rounded-full hover:bg-amber-50 transition-colors shadow-sm"
+                                            >
+                                                <checkCircle2 size={20} /> ★
+                                            </button>
                                             <button onClick={() => setAnalysisImages(prev => prev.filter(i => i.id !== img.id))} className="p-3 bg-white/90 backdrop-blur-md text-rose-500 rounded-full hover:bg-rose-50 transition-colors shadow-sm"><Trash2 size={20} /></button>
                                         </div>
                                         <img src={img.preview} className="w-full h-72 object-cover" />

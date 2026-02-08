@@ -229,62 +229,84 @@ export async function processAndDownloadZip({
             });
 
             let blob;
+            let hasImage = false; // [FIX] Declare variable
             const hasBounds = skeletonConfig.figureBounds &&
               Array.isArray(skeletonConfig.figureBounds) &&
               skeletonConfig.figureBounds.length === 4;
 
+            // 크롭 로직 부분 (zipProcessor 또는 해당 로직 위치)
             if (hasBounds) {
-              // [Crop Logic]
               const [ymin, xmin, ymax, xmax] = skeletonConfig.figureBounds;
-              const w = img.naturalWidth;
-              const h = img.naturalHeight;
 
-              const y1 = Math.floor((ymin / 100) * h);
-              const x1 = Math.floor((xmin / 100) * w);
-              const y2 = Math.ceil((ymax / 100) * h);
-              const x2 = Math.ceil((xmax / 100) * w);
+              // 유효한 좌표인지 체크 (전체화면 [0,0,100,100] 이나 [0,0,0,0] 인 경우 제외)
+              // [FIX] Coordinate scale is 1000. Check full image accurately.
+              // Assuming full image if top-left is near 0 and bottom-right is near 1000.
+              const isFullImage = (ymin <= 10) && (xmin <= 10) && (ymax >= 990) && (xmax >= 990);
+              const isEmpty = ymin === 0 && xmin === 0 && ymax === 0 && xmax === 0;
 
-              const cropW = Math.max(1, x2 - x1);
-              const cropH = Math.max(1, y2 - y1);
+              if (!isEmpty && !isFullImage) {
+                const w = img.naturalWidth;
+                const h = img.naturalHeight;
 
-              const canvas = document.createElement('canvas');
-              canvas.width = cropW;
-              canvas.height = cropH;
-              const ctx = canvas.getContext('2d');
+                // 1000 기준 좌표를 픽셀로 변환
+                const y1 = Math.floor((ymin / 1000) * h);
+                const x1 = Math.floor((xmin / 1000) * w);
+                const y2 = Math.ceil((ymax / 1000) * h);
+                const x2 = Math.ceil((xmax / 1000) * w);
 
-              ctx.drawImage(img, x1, y1, cropW, cropH, 0, 0, cropW, cropH);
+                const cropW = Math.max(1, x2 - x1);
+                const cropH = Math.max(1, y2 - y1);
 
-              blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
-            } else {
-              // [Full Logic]
-              const response = await fetch(skeletonConfig.contentImageUrl);
-              blob = await response.blob();
+                const canvas = document.createElement('canvas');
+                canvas.width = cropW;
+                canvas.height = cropH;
+                const ctx = canvas.getContext('2d');
+
+                ctx.drawImage(img, x1, y1, cropW, cropH, 0, 0, cropW, cropH);
+                blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+
+                hasImage = true; // 실제 크롭 성공 시에만 이미지 활성화
+              }
+            }
+
+            // [FIX] If no bounds or full image, fetch the original image blob
+            if (!hasImage && skeletonConfig.contentImageUrl) {
+              try {
+                const response = await fetch(skeletonConfig.contentImageUrl);
+                blob = await response.blob();
+                hasImage = true;
+              } catch (e) {
+                console.error("Failed to fetch original image for zip:", e);
+                // hasImage stays false
+              }
             }
 
             // [Path Logic]
             // User Requirement: Use existing 'images' folder relative to HTML. src="./images/filename"
             // pathPrefix is directory of HTML.
             // We construct: pathPrefix + "images/content_XX.png"
-            const imgFilename = `content_${pNumStr}.png`; // Assuming PNG for canvas or blob
-            let ext = 'png';
-            if (!hasBounds && blob.type) {
-              ext = blob.type.split('/')[1] || 'png';
+            if (hasImage && blob) {
+              const imgFilename = `content_${pNumStr}.png`; // Assuming PNG for canvas or blob
+              let ext = 'png';
+              if (blob.type) {
+                ext = blob.type.split('/')[1] || 'png';
+              }
+              console.log("figureBounds:", skeletonConfig.figureBounds);
+              console.log("hasBounds:", hasBounds);
+              const finalFilename = `content_${pNumStr}.${ext}`;
+              const imagesDir = pathPrefix + "images/";
+              const fullPath = `${imagesDir}${finalFilename}`;
+
+              loadedZip.file(fullPath, blob);
+
+              // Update Skeleton Config
+              skeletonConfig.contentImageUrl = `./images/${finalFilename}`;
+              console.log("Updated config to:", skeletonConfig.contentImageUrl);
+
+              // [Alt Text]
+              const altText = skeletonConfig.figureAlt || normalizedData.questions?.[0]?.promptLatex || normalizedData.mainQuestion || "문제 이미지";
+              skeletonConfig.altText = altText;
             }
-            console.log("figureBounds:", skeletonConfig.figureBounds);
-            console.log("hasBounds:", hasBounds);
-            const finalFilename = `content_${pNumStr}.${ext}`;
-            const imagesDir = pathPrefix + "images/";
-            const fullPath = `${imagesDir}${finalFilename}`;
-
-            loadedZip.file(fullPath, blob);
-
-            // Update Skeleton Config
-            skeletonConfig.contentImageUrl = `./images/${finalFilename}`;
-
-            // [Alt Text]
-            const altText = skeletonConfig.figureAlt || normalizedData.questions?.[0]?.promptLatex || normalizedData.mainQuestion || "문제 이미지";
-            skeletonConfig.altText = altText;
-
           } catch (err) {
             console.error("Failed to process content image:", err);
           }
