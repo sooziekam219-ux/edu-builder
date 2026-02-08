@@ -369,25 +369,36 @@ const App = () => {
 
     const builderImageInputRef = useRef(null);
     const templateZipInputRef = useRef(null);
+    const analysisScrollRef = useRef(null); // [NEW] Ref for analysis image grid
 
     const dragItem = useRef(null);
 
     const [statusMessage, setStatusMessage] = useState(null);
     const [uploadProgress, setUploadProgress] = useState(0);
 
+    // [New] Auto-scroll when analysis images are added
+    useEffect(() => {
+        if (activeTab === 'analysis' && analysisImages.length > 0 && analysisScrollRef.current) {
+            analysisScrollRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }, [analysisImages, activeTab]);
+
     const StatusModal = ({ status, onClose }) => {
         if (!status) return null;
+        const isLoading = status.type === 'loading' || status.type === 'info';
         return (
             <div className="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center p-4 animate-in fade-in">
                 <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl flex flex-col items-center gap-6">
-                    <div className={`p-4 rounded-full ${status.type === 'error' ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600'}`}>
-                        {status.type === 'error' ? <AlertTriangle size={32} /> : <CheckCircle2 size={32} />}
+                    <div className={`p-4 rounded-full ${status.type === 'error' ? 'bg-red-100 text-red-600' : isLoading ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                        {status.type === 'error' ? <AlertTriangle size={32} /> : isLoading ? <Loader2 className="animate-spin" size={32} /> : <CheckCircle2 size={32} />}
                     </div>
                     <div className="text-center">
                         <h3 className="text-xl font-black text-slate-900 mb-2">{status.title}</h3>
                         <p className="text-slate-500 font-medium whitespace-pre-wrap">{status.message}</p>
                     </div>
-                    <button onClick={onClose} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-all">확인</button>
+                    {!isLoading && (
+                        <button onClick={onClose} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-all">확인</button>
+                    )}
                 </div>
             </div>
         );
@@ -504,7 +515,7 @@ const App = () => {
             parsed.sections.forEach((sec, sIdx) => {
                 const title = sec.content.title || "";
                 const type = title.includes('문제') ? '문제' : title.includes('함께') ? '함께 풀기' : title.includes('발견') ? '발견하기' : '개념';
-                let subQs = (sec.content.body || "").split('\n').filter(l => l.trim()).map((l, i) => ({ id: i, text: l }));
+                let subQs = (sec.content.body || "").split('\n').filter(l => l.trim()).map((l, i) => ({ id: i, text: l.replace(/^\(\d+\)\s*/, '') }));
 
                 if (type === '함께 풀기') {
                     subQs = subQs.filter(q => q.text.includes('□'));
@@ -953,7 +964,7 @@ const App = () => {
 
             <main className="flex-1 overflow-y-auto relative custom-scrollbar p-10">
                 {isProcessing && (
-                    <div className="absolute inset-0 bg-white/70 backdrop-blur-md z-[100] flex flex-col items-center justify-center">
+                    <div className="fixed inset-0 bg-white/70 backdrop-blur-md z-[100] flex flex-col items-center justify-center">
                         <div className="p-10 bg-white rounded-[3rem] shadow-2xl flex flex-col items-center gap-6 border border-slate-100 animate-in zoom-in duration-300">
                             <Loader2 className="animate-spin text-indigo-600" size={64} />
                             <p className="font-black text-slate-700 text-lg">
@@ -972,7 +983,7 @@ const App = () => {
                 )}
 
                 <div className="max-w-7xl mx-auto">
-                    <header className="flex justify-between items-end mb-16 px-4">
+                    <header className="flex justify-between items-end mb-8 px-4 sticky top-0 z-20 bg-[#fcfcfc]">
                         <div>
                             <h2 className="text-4xl lg:text-5xl font-extrabold text-slate-900 tracking-tighter leading-tight drop-shadow-sm">
                                 {activeTab === 'analysis' && "교과서 분석"}
@@ -1005,7 +1016,7 @@ const App = () => {
                                 <div className="absolute inset-0 bg-grid-slate-100 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))] -z-10 group-hover:opacity-100 transition-opacity" />
                                 <input ref={builderImageInputRef} type="file" multiple accept="image/*" onChange={(e) => setAnalysisImages(Array.from(e.target.files).map(f => ({ id: Math.random(), file: f, preview: URL.createObjectURL(f) })))} className="hidden" />
 
-                                <div className="p-8 bg-white rounded-[2rem] text-indigo-600 mb-8 group-hover:scale-110 group-hover:rotate-3 transition-all duration-300 shadow-[0_8px_30px_rgb(0,0,0,0.04)] ring-1 ring-slate-100">
+                                <div className="p-3 bg-white rounded-[2rem] text-indigo-600 mb-8 group-hover:scale-110 group-hover:rotate-3 transition-all duration-300 shadow-[0_8px_30px_rgb(0,0,0,0.04)] ring-1 ring-slate-100">
                                     <Upload size={64} strokeWidth={1.5} />
                                 </div>
                                 <h3 className="text-3xl font-bold text-slate-800 tracking-tight text-center">교과서 원고 업로드</h3>
@@ -1014,7 +1025,7 @@ const App = () => {
                                     <span className="text-indigo-500 font-bold">AI가 자동으로 콘텐츠 유형 판별 및 텍스트 추출, 정답 및 해설 내용을 작성합니다. <br /> AI는 실수를 할 수 있습니다.</span>
                                 </p>
                             </div>
-                            <div className="grid grid-cols-3 gap-8">
+                            <div ref={analysisScrollRef} className="grid grid-cols-3 gap-8">
                                 {analysisImages.map(img => (
                                     <div key={img.id} className="relative rounded-[2.5rem] overflow-hidden border border-slate-200 shadow-md group hover:scale-[1.02] hover:shadow-xl transition-all duration-500 bg-white">
                                         <div className="absolute top-4 right-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1035,8 +1046,9 @@ const App = () => {
                             {pages.length > 0 ? pages.map((page, pIdx) => (
                                 <div key={page.id} className="bg-white rounded-[3rem] p-2 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.05)] border border-slate-100 group">
                                     <div className="flex flex-col lg:flex-row h-full">
+
                                         {/* Metadata Sider */}
-                                        <div className="lg:w-80 p-8 flex flex-col gap-6 border-b lg:border-b-0 lg:border-r border-slate-100">
+                                        <div className="lg:w-60 p-8 flex flex-col gap-6 border-b lg:border-b-0 lg:border-r border-slate-100">
                                             <div className="flex items-center gap-4 mb-4">
                                                 <span className="w-14 h-14 bg-indigo-600 text-white rounded-[1.5rem] flex items-center justify-center font-black text-xl shadow-lg shadow-indigo-200">
                                                     {pIdx + 1}
@@ -1089,7 +1101,7 @@ const App = () => {
                                         </div>
 
                                         {/* Logic Description */}
-                                        <div className="lg:w-96 bg-slate-900 p-8 text-slate-300 flex flex-col">
+                                        <div className="lg:w-76 bg-slate-900 p-8 text-slate-300 flex flex-col">
                                             <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest block mb-6">Interaction Logic</label>
                                             <textarea
                                                 className="w-full flex-1 bg-transparent text-emerald-400 font-mono text-xs leading-relaxed border-none focus:ring-0 p-0 resize-none selection:bg-emerald-900"
@@ -1100,6 +1112,94 @@ const App = () => {
                                                     setPages(newPages);
                                                 }}
                                             />
+                                            <button
+                                                disabled={statusMessage?.type === 'loading'}
+                                                onClick={async () => {
+                                                    if (statusMessage?.type === 'loading') return;
+                                                    // Remove setIsProcessing(true) to avoid double popup. Rely on StatusModal overlay.
+                                                    setStatusMessage({ title: "생성 중", message: "콘텐츠 빌더로 복사 및 데이터 추출 중...", type: 'loading' });
+
+                                                    try {
+                                                        // 1. Prepare Text Prompt from Storyboard Page
+                                                        const sbContent = JSON.stringify({
+                                                            type: page.type,
+                                                            content: page.content,
+                                                            body: page.body,
+                                                            subQuestions: page.subQuestions,
+                                                            description: page.description[0].text
+                                                        }, null, 2);
+
+                                                        const isTogether = page.type === '함께 풀기';
+                                                        const systemPrompt = BUILDER_SYSTEM_PROMPT(isTogether);
+
+                                                        // 2. Call Gemini
+                                                        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+                                                            method: 'POST',
+                                                            headers: { 'Content-Type': 'application/json' },
+                                                            body: JSON.stringify({
+                                                                contents: [{
+                                                                    parts: [
+                                                                        { text: systemPrompt },
+                                                                        { text: `Extract build data from this JSON representation of a textbook page:\n\n${sbContent}` }
+                                                                    ]
+                                                                }],
+                                                                generationConfig: { responseMimeType: "application/json" }
+                                                            })
+                                                        });
+
+                                                        if (!res.ok) throw new Error("API Error");
+                                                        const data = await res.json();
+                                                        const text = data.candidates[0].content.parts[0].text;
+                                                        const extracted = JSON.parse(text.replace(/```json/g, '').replace(/```/g, '').trim());
+
+                                                        // 3. Add to Build Pages
+                                                        const newBuildPages = [...buildPages];
+                                                        if (!newBuildPages[activePageIndex].data && !newBuildPages[activePageIndex].image) {
+                                                            newBuildPages[activePageIndex] = { ...newBuildPages[activePageIndex], data: extracted };
+                                                        } else {
+                                                            if (newBuildPages.length < 4) {
+                                                                newBuildPages.push({ id: newBuildPages.length + 1, image: null, data: extracted });
+                                                                setActivePageIndex(newBuildPages.length - 1);
+                                                            } else {
+                                                                alert("최대 4페이지까지만 생성 가능합니다.");
+                                                                setStatusMessage(null);
+                                                                return;
+                                                            }
+                                                        }
+
+                                                        setBuildPages(newBuildPages);
+                                                        setActiveTab('builder');
+                                                        setStatusMessage(null); // Close loading modal
+
+                                                        // Set Type Key
+                                                        const typeMap = {
+                                                            '함께 풀기': 'together.select',
+                                                            '문제': 'question.mathinput',
+                                                            '수식 입력형': 'question.mathinput',
+                                                            '스스로 풀기': 'question.mathinput',
+                                                            '연습 하기': 'question.mathinput'
+                                                        };
+                                                        if (typeMap[page.type]) {
+                                                            setSelectedTypeKey(typeMap[page.type]);
+                                                        } else {
+                                                            // Default logic if type is unknown (e.g. '발견하기' -> question.mathinput?)
+                                                            // For now, if it's not '함께 풀기', assume question.mathinput
+                                                            if (page.type !== '함께 풀기') {
+                                                                setSelectedTypeKey('question.mathinput');
+                                                            }
+                                                        }
+
+                                                    } catch (e) {
+                                                        console.error(e);
+                                                        setStatusMessage({ title: "오류", message: "데이터 추출 실패: " + e.message, type: 'error' });
+                                                    }
+                                                    // No finally block needed as success clears modal, error shows error modal.
+                                                }}
+                                                className={`w-full mt-4 py-3 rounded-xl font-bold text-xs transition-all border flex items-center justify-center gap-2 ${statusMessage?.type === 'loading' ? 'bg-slate-800 text-slate-500 border-slate-700 cursor-wait' : 'bg-white/10 text-emerald-400 hover:bg-emerald-500 hover:text-white border-white/10 hover:border-emerald-400'}`}
+                                            >
+                                                {statusMessage?.type === 'loading' ? <div className="w-3 h-3 rounded-full border-2 border-slate-500 border-t-white animate-spin" /> : <Calculator size={14} />}
+                                                {statusMessage?.type === 'loading' ? "분석 중..." : "콘텐츠 빌더로 복사"}
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
