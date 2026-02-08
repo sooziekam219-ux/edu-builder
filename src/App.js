@@ -17,8 +17,6 @@ console.log("App.js loaded");
 
 
 /* 익명 로그인*/
-import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
-
 const auth = getAuth(app);
 useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
