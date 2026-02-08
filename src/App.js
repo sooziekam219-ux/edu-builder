@@ -91,7 +91,6 @@ try {
     throw new Error("REACT_APP_FIREBASE_CONFIG JSON 파싱 실패: " + e.message);
 }
 const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = 'edu-builder-integrated-v5';
 const CHUNK_SIZE = 500 * 1024;
