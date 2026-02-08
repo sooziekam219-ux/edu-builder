@@ -1,17 +1,21 @@
-/* eslint-disable */
+import { TYPE_KEYS } from "../typeKeys"; // [NEW]
+
 import { collection, getDocs } from "firebase/firestore";
 import sanitizeLaTeX from "../utils/sanitize";
 import togetherSelect from "./handlers/together/select";
 import questionMathinput from "./handlers/question/mathinput"; // 이미 쓰고 있으면 그걸로
 import questionTextinput from "./handlers/question/textinput"; // [NEW] Strategy Pattern (Input v1)
+import conceptHandler from "./handlers/concept/index";
 
 import createInputStrategy from "./strategies/input_v1";
-import createTogetherStrategy from "./strategies/together_v1"; // [NEW]
+import createTogetherStrategy from "./strategies/together_v1";
+import createConceptStrategy from "./strategies/concept_v1"; // [NEW]
 
 const ENGINE_BY_TYPEKEY = {
   [togetherSelect.typeKey]: togetherSelect,
   [questionMathinput.typeKey]: questionMathinput,
   [questionTextinput.typeKey]: questionTextinput,
+  [conceptHandler.typeKey]: conceptHandler,
 };
 
 /**
@@ -85,6 +89,9 @@ export async function processAndDownloadZip({
       // [NEW] Select Strategy based on typeKey
       if (typeKey === "together.custom") {
         engine = createTogetherStrategy(customConfig.strategy.options);
+      } else if (typeKey === TYPE_KEYS.CONCEPT) {
+        console.log("Concept Strategy Selected for Draft"); // Debug
+        engine = createConceptStrategy(customConfig);
       } else {
         // Default to input_v1 (input.custom)
         engine = createInputStrategy(customConfig);

@@ -163,33 +163,45 @@ const generateLogicText = (type, subtype, answers) => {
 
 // [NEW] Draft Config Generator
 const buildDraftInputConfig = ({
-    typeKey,
+    typeKey, // "concept", "together.select", "question.mathinput" etc.
     baseTemplateTypeKey, // zip 베이스. 예: "question.mathinput"
     inputKind = "math", hasImage = false, headerUrl = "", contentImageUrl = "",
     figureBounds = null, figureAlt = "",
     isTogether = false // [NEW] Together Mode Flag
-}) => ({
-    typeKey: isTogether ? "together.custom" : "input.custom", // Dynamic Type Key
-    baseTemplateTypeKey: isTogether ? "together.select" : "question.mathinput",
-    manifest: {
-        // Manifest selectors differ by type? Currently unused by zipProcessor directly except as hint.
-        // input_v1 uses them internally? No, input_v1 hardcodes selectors for question.mathinput mostly.
-        // We should make strategy robust.
-        rowTemplate: isTogether ? ".txt1" : ".flex-row.ai-s.jc-sb",
-        // ... other selectors
-    },
-    strategy: {
-        name: isTogether ? "together_v1" : "input_v1", // Strategy Name Switch
-        options: {
-            inputKind,
-            hasImage,
-            headerUrl,
-            contentImageUrl,
-            figureBounds,
-            figureAlt
-        }
+}) => {
+    // 1. Concept Type
+    if (typeKey === TYPE_KEYS.CONCEPT) {
+        return {
+            typeKey: TYPE_KEYS.CONCEPT,
+            baseTemplateTypeKey: TYPE_KEYS.CONCEPT,
+            manifest: {},
+            strategy: {
+                name: 'concept_v1',
+                options: { hasImage, contentImageUrl, figureBounds, figureAlt }
+            }
+        };
     }
-});
+
+    // 2. Together Type or Standard Input
+    return {
+        typeKey: isTogether ? "together.custom" : "input.custom", // Dynamic Type Key
+        baseTemplateTypeKey: isTogether ? "together.select" : "question.mathinput",
+        manifest: {
+            rowTemplate: isTogether ? ".txt1" : ".flex-row.ai-s.jc-sb",
+        },
+        strategy: {
+            name: isTogether ? "together_v1" : "input_v1", // Strategy Name Switch
+            options: {
+                inputKind,
+                hasImage,
+                headerUrl,
+                contentImageUrl,
+                figureBounds,
+                figureAlt
+            }
+        }
+    };
+};
 
 const App = () => {
     const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
@@ -205,6 +217,10 @@ const App = () => {
         {
             typeKey: TYPE_KEYS.TOGETHER_SELECT,
             label: "함께 풀기 > 선택형",
+        },
+        {
+            typeKey: "concept",
+            label: "개념",
         },
     ];
 
@@ -390,6 +406,7 @@ const App = () => {
             const figureAlt = currentData?.figure_alt;
 
             customConfig = buildDraftInputConfig({
+                typeKey: selectedTypeKey, // [FIX] Pass selectedTypeKey
                 inputKind,
                 hasImage,
                 headerUrl: hUrl,
@@ -1035,7 +1052,12 @@ const App = () => {
                                 {activeTab === 'builder' && "콘텐츠 자동 생성"}
                                 {activeTab === 'library' && "템플릿 라이브러리"}
                             </h2>
-                            <p className="text-slate-500 font-small mt-3 text-lg">교과서 이미지 → 조작형 콘텐츠로 자동 변환(수학 김화경 저자ver) </p>
+                            <p className="text-slate-500 font-small mt-3 text-lg">
+                                {activeTab === 'analysis' && "교과서 이미지를 업로드하고 스토리보드를 생성하세요."}
+                                {activeTab === 'storyboard' && "생성된 스토리보드 화면을 확인하고 콘텐츠 생성을 진행하세요."}
+                                {activeTab === 'builder' && "세부 내용을 수정하여 최종 결과물을 다운받으세요."}
+                                {activeTab === 'library' && "템플릿 업로드 페이지입니다."}
+                            </p>
                         </div>
                         <div className="flex gap-4">
                             {activeTab === 'analysis' && (
@@ -1365,7 +1387,7 @@ const App = () => {
                                     </div>
 
                                     <details className="mt-10 mb-5 text-slate-400">
-                                        <summary className="cursor-pointer text-xs font-black uppercase tracking-widest hover:text-indigo-500 transition-colors">Advanced Options</summary>
+                                        <summary className="cursor-pointer text-xs font-black uppercase tracking-widest hover:text-indigo-500 transition-colors">[선택] 유형 및 템플릿 직접 설정</summary>
                                         <div className="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-4">
 
                                             <div>
