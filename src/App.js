@@ -98,26 +98,39 @@ const KIM_HWA_KYUNG_PROMPT = `
   Analyze input textbook image(s) and split content into logical sections for a Storyboard.
   
   **Splitting Rules:**
-  - Detect visual separators like "개념 쏙", "문제 1", "함께 풀기".
-  - **Type:** '개념', '문제', '발견하기', '함께 풀기', '핵심 쏙'.
+  - Detect visual separators like "개념 쏙", "문제 1", "함께 풀기", "함께 풀기 + 스스로 풀기".
+  - **Type:** '개념', '문제', '발견하기', '함께 풀기', '함께 풀기 + 스스로 풀기', '핵심 쏙'.
   - **Body Text:** Use LaTeX \\( ... \\). Use \\n to separate distinct questions or sentences.
-  - **Together Type:** For '함께 풀기', target the 'white area' (step-by-step explanation). Extract ONLY sentences containing a blank/input box. Represent these blanks specifically as '□'. Ignore other descriptive texts. **EXCLUDE** numbered sub-questions (like (1), (2) on skyblue backgrounds)
+  - 답이 스토리보드에 포함되지 않도록 주의 
+  **Specific Rules for '함께 풀기 + 스스로 풀기':**
+  1. **Preserve Full Text:** Do NOT omit any sentences. Extract the entire explanation process.
+  2. **Together Part (함께 풀기):** Keep the text as is. Ensure LaTeX is correctly formatted.
+  3. **Self Part (스스로 풀기):** Identify areas that are underlined in the image and represent them as '□'.
+  "중요: '함께 풀기'와 '스스로 풀기'는 반드시 서로 다른 별개의 'section' 객체로 나누어서 응답할 것."
   - **Answers:** Extract or solve for correct answers.
-  - 이미지 내에서 가이드 텍스트 아래, 확인 버튼 위에 있는 '도형', '그래프', '삽화' 영역만 정밀하게 찾아 [ymin, xmin, ymax, xmax] 형태로 'figure_bounds'에 적으세요. 
+  - Find 'figures', 'graphs', 'illustrations' and put them in 'figure_bounds' as [ymin, xmin, ymax, xmax].
   - 좌표는 이미지 전체 크기를 기준으로 0~1000 사이의 숫자를 사용하세요 (예: [200, 150, 450, 850]).
   - 만약 삽화나 도형이 전혀 없다면 [0,0,0,0]을 반환하세요.
-  
+  **Study Section (스스로 풀기) Rules:**
+  1. **Underline Detection:** Look for text with underlines (____) in the image. 
+  2. **Symbol Conversion:** Replace the underlined text part with the symbol '□'.
+  3. **Full Context:** Extract the complete sentence including the '□'.
+  4. **Answer Extraction:** Place the actual text that was on the underline into the "answers" array in the correct sequence.
+  5. **LaTeX:** Ensure all mathematical expressions within or around the underline are wrapped in \\( ... \\).
   Output JSON format:
   {
     "sections": [
       {
-        "type": "문제",
-        "subtype": "수식 입력형",
-        "content": { "title": "문제 1", "instruction": "다음 값을 구하시오.", "body": "(1) \\(\\sqrt{16}\\) \n(2) \\(0.04\\)" },
-        "answers": ["4, -4", "0.02"]
+        "type": "함께 풀기 + 스스로 풀기",
+        "subtype": "복합형",
+        "content": { "title": "함께 풀기", "instruction": "...", "body": "전체 텍스트..." },
+        "answers": ["정답"]
       }
     ]
   }
+  
+  
+  
 `;
 
 const BUILDER_SYSTEM_PROMPT = (isTogether) => isTogether ?
@@ -155,11 +168,41 @@ const sanitizeLaTeX = (str) => {
 
 const generateLogicText = (type, subtype, answers) => {
     const hasAnswer = answers && answers.length > 0;
-    if (type === '개념') return `[개념 학습]\n1. 단순 열람 모드.\n2. 페이지 넘김 기능 활성화.`;
-    if (type.includes('발견') || type.includes('생각')) return `[활동형]\n1. [저장] 버튼 클릭 시 입력값 저장.\n2. 정오 판별 없음.\n3. 빈칸 시 "내용을 입력하세요" 알럿.`;
 
-    return `[정답 설정]\n- 정답: ${answers.join(', ')}\n\n[기능 로직]\n1. [확인] 클릭 시 정오답 판별.\n2. 정답 시: 파란색(#0000FF) 변경 + 정답 알럿.\n3. 오답 시: 재도전 알럿 + 오답 붉은색 노출.\n4. 버튼 토글: 확인 -> 풀이/다시하기.`;
+    // 1. 개념 학습
+    if (type === '개념') {
+        return `[개념 학습]\n1. 단순 열람 모드.\n2. 페이지 넘김 기능 활성화.`;
+    }
+
+    // 2. 함께 풀기 + 스스로 풀기 (복합 유형)
+    if (type === '함께 풀기 + 스스로 풀기') {
+        // 이 유형은 subtype이나 전달된 컨텍스트를 통해 세부 로직을 구분합니다.
+        // 현재 title 정보를 직접 받지 않으므로, answers의 성격이나 가이드 텍스트로 추론하거나
+        // 호출부에서 subtype을 넘겨주어 구분하는 것이 좋습니다.
+
+        // '함께 풀기' 파트 (하늘색 네모 클릭 로직)
+        if (subtype === 'together_part' || subtype === '복합형') {
+            return `[복합형: 함께 풀기]\n1. 하늘색 네모(□) 클릭 시 라벨이 사라지며 정답 텍스트 노출.\n2. [확인] 버튼 없음. [저장] 버튼 클릭 시 학습 완료 처리.\n3. 정오 판별 로직 제외.`;
+        }
+
+        // '스스로 풀기' 파트 (수식 입력 및 정오 판별)
+        return `[복합형: 스스로 풀기]\n1. 빈칸 클릭 시 수식 입력기 호출.\n2. [확인] 클릭 시 정오답 판별.\n3. 정답 시: 파란색(#0000FF) 표시.\n4. 오답 시: 붉은색 노출 및 재도전 유도.`;
+    }
+
+    // 3. 단독 함께 풀기 (선택형)
+    if (type === '함께 풀기') {
+        return `[함께 풀기: 선택형]\n1. 빈칸(□) 클릭 시 선택 요소(Pop-up/Picker) 노출.\n2. [확인] 클릭 시 선택값 기반 정오 판별.\n3. 정답: ${answers.join(', ')}`;
+    }
+
+    // 4. 활동형 (발견/생각)
+    if (type.includes('발견') || type.includes('생각')) {
+        return `[활동형]\n1. [저장] 버튼 클릭 시 입력값 저장.\n2. 정오 판별 없음.\n3. 빈칸 시 "내용을 입력하세요" 알럿.`;
+    }
+
+    // 5. 일반 문제 (수식 입력형)
+    return `[정답 설정]\n- 정답: ${answers.join(', ')}\n\n[기능 로직]\n1. 빈칸 클릭 시 수식 입력기 호출.\n2. [확인] 클릭 시 정오답 판별.\n3. 정답 시: 파란색(#0000FF) 변경 + 정답 알럿.\n4. 오답 시: 재도전 알럿 + 오답 붉은색 노출.\n5. 버튼 토글: 확인 -> 풀이/다시하기.`;
 };
+
 
 // [NEW] Draft Config Generator
 const buildDraftInputConfig = ({
@@ -167,7 +210,8 @@ const buildDraftInputConfig = ({
     baseTemplateTypeKey, // zip 베이스. 예: "question.mathinput"
     inputKind = "math", hasImage = false, headerUrl = "", contentImageUrl = "",
     figureBounds = null, figureAlt = "",
-    isTogether = false // [NEW] Together Mode Flag
+    isTogether = false, // [NEW] Together Mode Flag
+    isSelfStudy = false // [NEW] Self Study Flag
 }) => {
     // 1. Concept Type
     if (typeKey === TYPE_KEYS.CONCEPT) {
@@ -182,7 +226,29 @@ const buildDraftInputConfig = ({
         };
     }
 
-    // 2. Together Type or Standard Input
+    // 2. Together + Self Type [FIX]
+    if (typeKey === TYPE_KEYS.TOGETHER_SELF) {
+        return {
+            typeKey: TYPE_KEYS.TOGETHER_SELF,
+            baseTemplateTypeKey: TYPE_KEYS.TOGETHER_SELF, // [FIX] Use correct key
+            manifest: {
+                rowTemplate: ".txt1",
+            },
+            strategy: {
+                name: "together_self_v1",
+                options: {
+                    hasImage,
+                    headerUrl,
+                    contentImageUrl,
+                    figureBounds,
+                    figureAlt,
+                    isSelfStudy // [NEW] Pass flag
+                }
+            }
+        };
+    }
+
+    // 3. Together Type or Standard Input
     return {
         typeKey: isTogether ? "together.custom" : "input.custom", // Dynamic Type Key
         baseTemplateTypeKey: isTogether ? "together.select" : "question.mathinput",
@@ -222,6 +288,10 @@ const App = () => {
             typeKey: "concept",
             label: "개념",
         },
+        {
+            typeKey: TYPE_KEYS.TOGETHER_SELF,
+            label: "함께 풀기 + 스스로 풀기",
+        }
     ];
 
     // 이후 계속 추가
@@ -306,8 +376,14 @@ const App = () => {
     // 1️⃣ 패턴(Strategy Family) 판별
     let detectedFamily = "";
     if (activeData) {
-        if (activeData.lines) detectedFamily = "together";
-        else if (activeData.subQuestions || activeData.questions) detectedFamily = "input";
+        // 순서 변경: TOGETHER_SELF를 최우선으로 판별
+        if (activeData.typeKey === TYPE_KEYS.TOGETHER_SELF || activeData.type?.includes('함께 풀기 + 스스로 풀기')) {
+            detectedFamily = "together";
+        } else if (activeData.lines) {
+            detectedFamily = "together";
+        } else if (activeData.subQuestions || activeData.questions) {
+            detectedFamily = "input";
+        }
     }
 
     // 2️⃣ 의미 typeKey (있으면 사용, 없으면 empty)
@@ -325,6 +401,8 @@ const App = () => {
         detectionStatus = "UNKNOWN";
     } else if (hasExactTemplate) {
         detectionStatus = "EXACT";
+    } else if (detectedTypeKey === TYPE_KEYS.TOGETHER_SELF) {
+        detectionStatus = "SIMILAR"; // together_self_v1 전략으로 생성 가능
     } else if (detectedFamily === "input") {
         detectionStatus = "SIMILAR"; // input_v1 전략으로 생성 가능
     } else {
@@ -352,7 +430,7 @@ const App = () => {
     // Header Mapping (Title Type -> Template TypeKey)
     const TYPE_MAPPING = {
         "question.mathinput": ["문제", "예제", "따라 하기"], // Exact header matches
-        "together.select": ["함께 풀기", "스스로 확인하기"]
+        "together.select": ["함께 풀기"]
     };
 
     if (detectedTypeKey) {
@@ -375,54 +453,91 @@ const App = () => {
 
     const onClickZip = () => {
         let customConfig = null;
-        let finalTemplateId = selectedTemplateId;
+        let finalTemplateId = null; // 초기화
 
         const currentData = buildPages[activePageIndex]?.data;
-        const isTogether = (selectedTypeKey || currentData?.type || "").startsWith("together") || (currentData?.type === "함께 풀기");
+        const currentType = selectedTypeKey || currentData?.typeKey || currentData?.type || "";
+        let lookupType = currentType;
+        if (currentType === TYPE_KEYS.TOGETHER_SELF) lookupType = "together.self";
+        // [구조 개선] 명확한 타입 판별 logic
+        const isConcept = currentType === TYPE_KEYS.CONCEPT;
+        const isTogetherSelf = currentType === TYPE_KEYS.TOGETHER_SELF;
+        const isTogether = !isTogetherSelf && (currentType.startsWith("together") || currentType.includes("함께"));
 
-        // Auto-Selection Logic if not manually selected
-        if (!finalTemplateId) {
-            if (detectionStatus === "EXACT") {
-                finalTemplateId = matchingDetectedTemplates[0]?.id;
-            } else if (detectionStatus === "SIMILAR" || detectionStatus === "NEW") {
-                // Determine base for Draft (needs a template zip to clone assets from)
-                // [Fixed] Dynamic Base Template
-                const baseType = isTogether ? "together.select" : "question.mathinput";
-                finalTemplateId = templates.find(t => t.typeKey === baseType)?.id;
+        /**
+         * A. 템플릿 ID 결정 로직 (finalTemplateId)
+         * 1순위: 시스템이 완벽하게 감지했을 때 (EXACT)
+         * 2순위: 사용자가 수동으로 선택했을 때 (단, SIMILAR/NEW 상황에서만)
+         * 3순위: 그 외 유형별 Base 템플릿
+         */
+        if (detectionStatus === "EXACT" && matchingDetectedTemplates.length > 0) {
+            finalTemplateId = matchingDetectedTemplates[0].id;
+        } else {
+            // 수동 선택값이 있다면 그것을 사용, 없다면 베이스 타입 결정
+            if (selectedTemplateId) {
+                finalTemplateId = selectedTemplateId;
+            } else {
+                // [FIX] Try to find specific matching template first
+                let templateMatch = templates.find(t => t.typeKey === currentType);
+
+                // [Alias] Handle together.self vs togetherself
+                if (!templateMatch && (currentType === TYPE_KEYS.TOGETHER_SELF || currentType === "together.self" || currentType === "togetherself")) {
+                    templateMatch = templates.find(t => t.typeKey === "together.self") ||
+                        templates.find(t => t.typeKey === "togetherself");
+                }
+
+                if (templateMatch) {
+                    finalTemplateId = templateMatch.id;
+                    console.log("[ZIP] Found exact/alias match:", templateMatch.typeKey, finalTemplateId);
+                } else {
+                    let baseTypeKey = "question.mathinput";
+                    if (isConcept) baseTypeKey = TYPE_KEYS.CONCEPT;
+                    else if (isTogetherSelf || isTogether) baseTypeKey = "together.select";
+
+                    const fallback = templates.find(t => t.typeKey === baseTypeKey);
+                    finalTemplateId = fallback?.id;
+                    console.log("[ZIP] Fallback applied:", baseTypeKey, finalTemplateId);
+                }
             }
         }
 
-        // Generate Draft Config
-        // [Fixed] Always generate config if manual override or new/similar
-        // Even if EXACT, user might want to force Draft mode via Advanced Options? 
-        // For now, keep logic: Only if SIMILAR/NEW OR manual drafted.
-        if (detectionStatus === "SIMILAR" || detectionStatus === "NEW" || selectedTypeKey) {
-            const headerType = currentData?.type || (isTogether ? "함께 풀기" : "문제");
-            // Check if ASSETS is available in scope, it is global const
+        // B. 커스텀 설정(Draft Config) 생성 로직
+        // EXACT 모드가 아닐 때는 사용자가 편집한 내용을 덮어씌워야 하므로 Config를 생성함
+        if (detectionStatus !== "EXACT" || selectedTypeKey) {
+            let headerType = "문제";
+            if (isConcept) headerType = "개념";
+            else if (isTogetherSelf) {
+                // [FIX] Determine header type based on title (함께/스스로)
+                const title = currentData?.title || "";
+                if (title.includes("스스로")) headerType = "스스로 풀기";
+                else headerType = "함께 풀기";
+            }
+            else if (isTogether) headerType = "함께 풀기";
+            else if (currentData?.type) headerType = currentData.type;
+
             const hUrl = ASSETS.TITLES[headerType] || ASSETS.TITLES['문제'];
             const cImg = buildPages[activePageIndex]?.image || "";
-
-            const figureBounds = currentData?.figure_bounds;
-            const figureAlt = currentData?.figure_alt;
+            const isSelfStudy = headerType === "스스로 풀기";
 
             customConfig = buildDraftInputConfig({
-                typeKey: selectedTypeKey, // [FIX] Pass selectedTypeKey
+                typeKey: currentType,
                 inputKind,
                 hasImage,
                 headerUrl: hUrl,
                 contentImageUrl: cImg,
-                figureBounds,
-                figureAlt,
-                isTogether
+                figureBounds: currentData?.figure_bounds,
+                figureAlt: currentData?.figure_alt,
+                isTogether,
+                isSelfStudy // [NEW]
             });
-            console.log("Generating Draft Config:", customConfig);
         }
 
-        if (!finalTemplateId && !customConfig) {
+        if (!finalTemplateId) {
             setStatusMessage({ title: "알림", message: "사용할 템플릿을 찾을 수 없습니다.", type: "error" });
             return;
         }
 
+        // 최종 실행
         processAndDownloadZip({
             templates,
             selectedTemplateId: finalTemplateId,
@@ -473,6 +588,7 @@ const App = () => {
         );
     };
 
+    // 익명 로그인(firebase 보안)
     useEffect(() => {
         [JSZIP_CDN, PPTX_CDN].forEach(src => {
             if (!document.querySelector(`script[src="${src}"]`)) {
@@ -496,20 +612,26 @@ const App = () => {
 
 
     useEffect(() => {
+        // 필터링된 결과가 없으면 비움
         if (filteredTemplates.length === 0) {
             setSelectedTemplateId("");
             return;
         }
 
+        // 사용자가 현재 타입을 변경했거나, 기존에 선택된게 필터링 리스트에 없는 경우에만 업데이트
         const exists = filteredTemplates.some(t => t.id === selectedTemplateId);
         if (!selectedTemplateId || !exists) {
             setSelectedTemplateId(filteredTemplates[0].id);
         }
-    }, [selectedTypeKey, filteredTemplates, selectedTemplateId]);
+    }, [selectedTypeKey, filteredTemplates]); // selectedTemplateId를 의존성에서 제거 (무한루프 방지)
 
-
-    const renderMathToHTML = (text) => {
+    const renderMathToHTML = (text, typeKey, pageTitle) => {
         if (!text) return null;
+
+        // 스스로 풀기 여부 확인
+        const isSelfStudy = typeKey === "together.self" && pageTitle.includes('스스로');
+        const isTogether = typeKey === "together.self" && pageTitle.includes('함께');
+
         const parts = text.split(/(\\\(.*?\\\)|□)/g);
         return parts.map((part, i) => {
             if (part.startsWith('\\(')) {
@@ -517,12 +639,22 @@ const App = () => {
                 const url = `https://latex.codecogs.com/png.latex?\\dpi{150}\\bg_white ${encodeURIComponent(latex)}`;
                 return <img key={i} src={url} alt="math" className="inline-block align-middle mx-1 h-5" />;
             } else if (part === '□') {
-                return <span key={i} className="inline-block w-8 h-8 bg-[#00bcf1] align-middle mx-1 rounded-sm border border-[#00bcf1]"></span>;
+                return (
+                    <span
+                        key={i}
+                        className={`inline-block align-middle mx-1 rounded-md border-2 transition-all ${isSelfStudy
+                            ? 'w-32 h-10 bg-white border-slate-300 shadow-sm' // 스스로 풀기: 길쭉한 하얀 입력창
+                            : isTogether
+                                ? 'w-16 h-9 bg-[#00bcf1] border-[#00bcf1]'        // 함께 풀기: 약간 길쭉한 파란 박스
+                                : 'w-8 h-8 bg-[#00bcf1] border-[#00bcf1]'         // 기타: 기본 정사각형
+                            }`}
+                    ></span>
+                );
             }
             return <span key={i} className="whitespace-pre-wrap">{part}</span>;
         });
     };
-
+    // 교과서 -> SB 변환
     const runAnalysis = async () => {
         if (analysisImages.length === 0) return;
         setIsProcessing(true);
@@ -573,21 +705,80 @@ const App = () => {
 
             // ... 이후 로직은 기존과 동일 ...
             const newPages = [];
+
+            // [Context Detection] Check if this is a 'Together + Self' mixed set
+            const hasTogether = parsed.sections.some(s => (s.content.title || "").includes("함께"));
+            const hasSelf = parsed.sections.some(s => (s.content.title || "").includes("스스로"));
+            const isTogetherSelfSet = hasTogether && hasSelf;
+
             parsed.sections.forEach((sec, sIdx) => {
                 const title = sec.content.title || "";
-                const type = title.includes('문제') ? '문제' : title.includes('함께') ? '함께 풀기' : title.includes('발견') ? '발견하기' : '개념';
-                let subQs = (sec.content.body || "").split('\n').filter(l => l.trim()).map((l, i) => ({ id: i, text: l.replace(/^\(\d+\)\s*/, '') }));
 
-                if (type === '함께 풀기') {
-                    subQs = subQs.filter(q => q.text.includes('□'));
+                // 1. 기본 타입 판별 (텍스트 포함 여부로 결정)
+                let isTogether = title.includes('함께');
+                let isSelf = title.includes('스스로');
+
+                let type = isTogether ? '함께 풀기' :
+                    isSelf ? '스스로 풀기' :
+                        title.includes('문제') ? '문제' :
+                            title.includes('발견') ? '발견하기' :
+                                title.includes('개념') ? '개념' : '개념';
+
+                let body = sec.content.body || "";
+                let finalAnswers = [...(sec.answers || [])];
+                let detectedTypeKey = "";
+
+                // 2. [핵심] '함께'와 '스스로'가 공존하는 페이지(isTogetherSelfSet)인 경우
+                if (isTogetherSelfSet && (isTogether || isSelf)) {
+                    // 유형 명칭을 동일하게 맞춤
+                    type = '함께 풀기 + 스스로 풀기';
+                    detectedTypeKey = TYPE_KEYS.TOGETHER_SELF;
+
+                    // 함께 풀기 부분일 때만 '=' -> '□' 처리
+                    if (isTogether && !body.includes('□') && body.includes('=')) {
+                        const extracted = [];
+                        body = body.replace(/=\s*([^=\n]+)/g, (match, p1) => {
+                            extracted.push(p1.trim());
+                            return '= □';
+                        });
+                        finalAnswers = extracted;
+                    }
+
+                    if (isSelf && body.includes('___')) {
+                        body = body.replace(/_{2,}/g, '□');
+                    }
+
+                    // finalAnswers는 AI가 추출한 sec.answers를 우선 사용
+                    finalAnswers = sec.answers || [];
+
+                }
+                // 3. 그 외 일반 유형
+                else {
+                    if (type === '개념') {
+                        detectedTypeKey = TYPE_KEYS.CONCEPT;
+                    } else if (isTogether) {
+                        detectedTypeKey = TYPE_KEYS.TOGETHER_SELECT;
+                    } else {
+                        detectedTypeKey = TYPE_KEYS.QUESTION_MATHINPUT;
+                    }
                 }
 
-                if (type === '문제' && subQs.length >= 3) {
+                // subQuestions 생성
+                const updatedSubQs = body.split('\n')
+                    .filter(l => l.trim())
+                    .map((l, i) => ({
+                        id: i,
+                        text: l.replace(/^\(\d+\)\s*/, '')
+                    }));
+
+                // 4. 페이지 생성 (하나의 section당 하나의 page를 push하므로 본문이 합쳐지지 않음)
+                if (type === '문제' && updatedSubQs.length >= 3) {
                     for (let i = 0; i < subQs.length; i += 2) {
                         const chunk = subQs.slice(i, i + 2);
                         newPages.push({
                             id: Date.now() + sIdx + i,
                             type,
+                            typeKey: detectedTypeKey, // [New]
                             title: i === 0 ? title : `${title} (계속)`,
                             content: sec.content.instruction || "",
                             body: chunk.map(q => q.text).join('\n'),
@@ -599,16 +790,18 @@ const App = () => {
                 } else {
                     newPages.push({
                         id: Date.now() + sIdx,
-                        type,
-                        title,
+                        type: type,              // '함께 풀기 + 스스로 풀기'로 저장됨
+                        typeKey: detectedTypeKey, // TOGETHER_SELF로 저장됨
+                        title: title,            // '함께 풀기' 또는 '스스로 풀기' 원본 제목 유지
                         content: sec.content.instruction || "",
-                        body: sec.content.body || "",
-                        answers: sec.answers || [],
-                        description: [{ text: generateLogicText(type, sec.subtype, sec.answers || []) }],
-                        subQuestions: subQs
+                        body: body,              // 해당 섹션의 본문만 들어감
+                        answers: finalAnswers,
+                        description: [{ text: generateLogicText(type, sec.subtype, finalAnswers) }],
+                        subQuestions: updatedSubQs
                     });
                 }
             });
+
 
             setPages(newPages);
             setActiveTab('storyboard');
@@ -623,7 +816,8 @@ const App = () => {
     };
 
     // --- Math Rendering Helper (Improved) ---
-    const renderMathText = (slide, textBlock, startX, startY, width, lineHeight = 0.4) => {
+    // App.js 내 renderMathText 함수 수정
+    const renderMathText = (slide, textBlock, startX, startY, width, lineHeight = 0.4, page = null) => {
         if (!textBlock) return startY;
 
         const lines = textBlock.split('\n');
@@ -639,9 +833,12 @@ const App = () => {
                     let latexCode = part.replace(/^\\(\(|\[)/, '').replace(/\\(\)|\])$/, '');
                     const imageUrl = `https://latex.codecogs.com/png.latex?\\dpi{200}\\bg_white ${encodeURIComponent(latexCode)}`;
 
-                    const imgWidth = Math.min(width, Math.max(0.15, latexCode.length * 0.04));
-                    const imgHeight = 0.15;
+                    // 수식 너비 계산: 글자당 가중치를 0.025로 낮추어 옆으로 늘어남 방지
+                    let imgWidth = Math.max(0.2, latexCode.length * 0.04);
+                    const imgHeight = 0.18; // 높이를 살짝 키워 시인성 확보
 
+                    // 비율 제한: 높이 대비 너무 길어지면 캡핑
+                    if (imgWidth > 2.0) imgWidth = 2.0;
                     if (currentX + imgWidth > startX + width) {
                         currentX = startX;
                         currentY += lineHeight;
@@ -650,39 +847,75 @@ const App = () => {
                     slide.addImage({
                         path: imageUrl,
                         x: currentX,
-                        y: currentY - 0.05,
+                        y: currentY - 0.04,
                         w: imgWidth,
                         h: imgHeight
                     });
                     currentX += imgWidth + 0.1;
-                } else if (part === '□') {
-                    // Render Blue Box
-                    const boxSize = 0.3;
-                    if (currentX + boxSize > startX + width) {
+                }
+                else if (part === '□') {
+                    // [고도화] 입력형(문제, 스스로 풀기) 여부 판별
+                    const isInputType = page?.type === '문제' ||
+                        page?.type === '스스로 풀기' ||
+                        (page?.type === '함께 풀기 + 스스로 풀기' && page?.title?.includes('스스로'));
+
+                    const boxW = isInputType ? 1.0 : 0.3; // 입력형은 1.0으로 길게, 선택형은 0.3 정사각형
+                    const boxH = 0.3;
+
+                    if (currentX + boxW > startX + width) {
                         currentX = startX;
                         currentY += lineHeight;
                     }
-                    slide.addShape(window.PptxGenJS.ShapeType.rect, {
-                        x: currentX, y: currentY - 0.05, w: boxSize, h: boxSize,
-                        fill: '00bcf1', line: { color: '00bcf1', width: 0 }
+
+                    // 스타일 통일: 하얀 배경 + 회색 테두리 (입력형) vs 파란 배경 (함께 풀기)
+                    slide.addShape('rect', {
+                        x: currentX,
+                        y: currentY - 0.05,
+                        w: boxW,
+                        h: boxH,
+                        fill: isInputType ? 'FFFFFF' : '00bcf1',
+                        line: { color: isInputType ? '999999' : '00bcf1', width: 0.5 }
                     });
-                    currentX += boxSize + 0.1;
-                } else if (part.trim() !== '') {
-                    const textWidth = part.length * 0.12;
+
+                    // 입력형인 경우 중앙에 아이콘 추가 (선택 사항)
+                    if (isInputType) {
+                        slide.addImage({
+                            path: 'https://i.imgur.com/5LhWfL3.png',
+                            x: currentX + (boxW - 0.15) / 2,
+                            y: currentY + (boxH - 0.15) / 2 - 0.05,
+                            w: 0.15, h: 0.15
+                        });
+                    }
+                    currentX += boxW + 0.1;
+                }
+                else if (part.trim() !== '' || part === ' ') {
+                    // 맑은 고딕 10pt 기준: 한글/영문 평균 너비 가중치 0.09로 조정
+                    const textWidth = part.length * 0.09;
+
                     if (currentX + textWidth > startX + width) {
-                        slide.addText(part, { x: currentX, y: currentY - 0.12, w: width - (currentX - startX), h: lineHeight, fontSize: fontSize, color: '000000', valign: 'middle', fontFace: 'Malgun Gothic' });
+                        // 줄바꿈 시 남은 공간에 꽉 채우지 않고 다음 줄로 넘김
                         currentX = startX;
                         currentY += lineHeight;
-                    } else {
-                        slide.addText(part, { x: currentX, y: currentY - 0.12, w: textWidth, h: lineHeight, fontSize: fontSize, color: '000000', valign: 'middle', fontFace: 'Malgun Gothic' });
-                        currentX += textWidth;
                     }
+
+                    slide.addText(part, {
+                        x: currentX,
+                        y: currentY - 0.1, // 텍스트 베이스라인 정렬 조정
+                        w: textWidth + 0.1, // 우측 여유분 살짝 추가
+                        h: lineHeight,
+                        fontSize: fontSize,
+                        color: '000000',
+                        valign: 'middle',
+                        fontFace: 'Malgun Gothic'
+                    });
+                    currentX += textWidth;
                 }
             });
             currentY += lineHeight;
         });
         return currentY;
     };
+
 
     const generatePPTX = () => {
         if (!window.PptxGenJS || pages.length === 0) {
@@ -735,11 +968,12 @@ const App = () => {
                 const textLineHeight = isConcept ? 0.3 : 0.4;
                 const hasSubQuestions = page.subQuestions && page.subQuestions.length > 0;
 
+
                 if (hasSubQuestions) {
                     page.subQuestions.forEach((sq, qIdx) => {
                         const qStartX = contentX + 0.2;
                         const textAvailW = actualLeftW - 2.0;
-                        const nextY = renderMathText(slide, sq.text, qStartX, currentY, textAvailW, 0.4);
+                        const nextY = renderMathText(slide, sq.text, qStartX, currentY, textAvailW, 0.4, page);
 
                         if (page.type !== '개념' && !page.type.includes('발견') && page.type !== '함께 풀기') {
                             const inputW = 1.5; const inputH = 0.4;
@@ -772,7 +1006,7 @@ const App = () => {
                     });
                 } else {
                     if (page.body) {
-                        renderMathText(slide, page.body, contentX + 0.2, currentY, actualLeftW - 0.4, textLineHeight);
+                        renderMathText(slide, page.body, contentX + 0.2, currentY, actualLeftW - 0.4, textLineHeight, page);
                     }
 
                     if (page.type !== '개념' && page.type !== '함께 풀기' && !hasSubQuestions) {
@@ -881,6 +1115,7 @@ const App = () => {
         return JSON.parse(cleanText);
     };
 
+    // 콘텐츠 생성 tab에서 사용자가 업로드한 sb 이미지를 받아서 미리보기를 생성하고, AI를 통해 **내용을 분석**한 뒤, 그 결과를 페이지별로 저장
     const handleBuilderImage = async (e) => {
         const files = Array.from(e.target.files);
         if (files.length === 0) return;
@@ -895,7 +1130,7 @@ const App = () => {
 
                 // Add page if needed
                 if (targetIndex >= currentPages.length) {
-                    if (currentPages.length >= 4) break;
+                    if (currentPages.length >= 5) break;
                     currentPages.push({ id: currentPages.length + 1, image: null, data: null });
                 }
 
@@ -925,7 +1160,7 @@ const App = () => {
     };
 
 
-
+    // 템플릿 zip파일 생성
     const uploadTemplate = async (e) => {
         const file = e.target.files[0];
         if (!file || !file.name.endsWith('.zip')) {
@@ -1225,13 +1460,31 @@ const App = () => {
                                         <div className="flex-1 p-10 bg-slate-50/50">
                                             <label className="text-[10px] font-black uppercase text-indigo-300 tracking-widest block mb-6">Visual Preview</label>
                                             <div className="bg-white p-12 rounded-[2.5rem] border border-slate-200 shadow-sm relative min-h-[500px]">
-                                                <img src={ASSETS.TITLES[page.type] || ASSETS.TITLES['개념']} className="h-10 mb-10 object-contain brightness-95" />
+                                                {(() => {
+                                                    let titleImg = ASSETS.TITLES[page.type] || ASSETS.TITLES['개념'];
+
+                                                    // '함께 풀기 + 스스로 풀기' 타입일 경우, 실제 제목(title)에 따라 이미지 교체
+                                                    if (page.type === '함께 풀기 + 스스로 풀기') {
+                                                        if (page.title.includes('함께')) {
+                                                            titleImg = ASSETS.TITLES['함께 풀기'];
+                                                        } else if (page.title.includes('스스로')) {
+                                                            titleImg = ASSETS.TITLES['스스로 풀기'];
+                                                        }
+                                                    }
+
+                                                    return <img src={titleImg} className="h-10 mb-10 object-contain brightness-95" />;
+                                                })()}
+
                                                 <div className="space-y-12">
                                                     <h4 className="text-3xl font-bold text-slate-800 leading-snug tracking-tight">{page.content}</h4>
                                                     <div className="space-y-6 mt-8 pl-2 border-l-2 border-slate-100">
                                                         {page.subQuestions.length > 0 ? page.subQuestions.map((sq, i) => (
                                                             <div key={i} className="flex items-start gap-6 p-6 bg-slate-50 rounded-[2rem] hover:bg-indigo-50/30 transition-colors">
-                                                                <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-black text-slate-500 mt-1">{sq.label || i + 1}</div>
+                                                                {sq.label && (
+                                                                    <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-black text-slate-500 mt-1">
+                                                                        {sq.label}
+                                                                    </div>
+                                                                )}
                                                                 <div className="text-lg font-medium text-slate-700 leading-relaxed flex-1">{renderMathToHTML(sq.text)}</div>
                                                             </div>
                                                         )) : (
@@ -1267,12 +1520,23 @@ const App = () => {
                                                             type: page.type,
                                                             content: page.content,
                                                             body: page.body,
+                                                            answers: page.answers, // [추가됨]
                                                             subQuestions: page.subQuestions,
                                                             description: page.description[0].text
                                                         }, null, 2);
 
-                                                        const isTogether = page.type === '함께 풀기';
-                                                        const systemPrompt = BUILDER_SYSTEM_PROMPT(isTogether);
+                                                        const systemPrompt = BUILDER_SYSTEM_PROMPT(page.typeKey || TYPE_KEYS.QUESTION_MATHINPUT);
+                                                        const isTogetherSelf = page.typeKey === TYPE_KEYS.TOGETHER_SELF || page.type === '함께 풀기 + 스스로 풀기';
+                                                        let titleImg = ASSETS.TITLES[page.type] || ASSETS.TITLES['개념'];
+
+                                                        // [Issue 1] TOGETHER_SELF인 경우 타이틀에 따라 이미지 분기
+                                                        if (isTogetherSelf) {
+                                                            if (page.title.includes('함께')) {
+                                                                titleImg = ASSETS.TITLES['함께 풀기'];
+                                                            } else if (page.title.includes('스스로')) {
+                                                                titleImg = ASSETS.TITLES['스스로 풀기'];
+                                                            }
+                                                        }
 
                                                         // 2. Call Gemini
                                                         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
@@ -1294,13 +1558,17 @@ const App = () => {
                                                         const text = data.candidates[0].content.parts[0].text;
                                                         const extracted = JSON.parse(text.replace(/```json/g, '').replace(/```/g, '').trim());
 
+                                                        const finalExtracted = {
+                                                            ...extracted,
+                                                            typeKey: page.typeKey || TYPE_KEYS.TOGETHER_SELF // 스토리보드 페이지가 가진 타입을 유지
+                                                        };
                                                         // 3. Add to Build Pages
                                                         const newBuildPages = [...buildPages];
                                                         if (!newBuildPages[activePageIndex].data && !newBuildPages[activePageIndex].image) {
-                                                            newBuildPages[activePageIndex] = { ...newBuildPages[activePageIndex], data: extracted };
+                                                            newBuildPages[activePageIndex] = { ...newBuildPages[activePageIndex], data: finalExtracted };
                                                         } else {
                                                             if (newBuildPages.length < 4) {
-                                                                newBuildPages.push({ id: newBuildPages.length + 1, image: null, data: extracted });
+                                                                newBuildPages.push({ id: newBuildPages.length + 1, image: null, data: finalExtracted });
                                                                 setActivePageIndex(newBuildPages.length - 1);
                                                             } else {
                                                                 alert("최대 4페이지까지만 생성 가능합니다.");
@@ -1312,23 +1580,23 @@ const App = () => {
                                                         setBuildPages(newBuildPages);
                                                         setActiveTab('builder');
                                                         setStatusMessage(null); // Close loading modal
-
+                                                        setSelectedTypeKey(page.typeKey || TYPE_KEYS.TOGETHER_SELF);
                                                         // Set Type Key
-                                                        const typeMap = {
-                                                            '함께 풀기': 'together.select',
-                                                            '문제': 'question.mathinput',
-                                                            '수식 입력형': 'question.mathinput',
-                                                            '스스로 풀기': 'question.mathinput',
-                                                            '연습 하기': 'question.mathinput'
-                                                        };
-                                                        if (typeMap[page.type]) {
-                                                            setSelectedTypeKey(typeMap[page.type]);
+                                                        // Set Type Key
+                                                        // [Updated] Use Pre-detected typeKey if available (Context Aware)
+                                                        if (page.typeKey) {
+                                                            setSelectedTypeKey(page.typeKey);
                                                         } else {
-                                                            // Default logic if type is unknown (e.g. '발견하기' -> question.mathinput?)
-                                                            // For now, if it's not '함께 풀기', assume question.mathinput
-                                                            if (page.type !== '함께 풀기') {
-                                                                setSelectedTypeKey('question.mathinput');
-                                                            }
+                                                            const typeMap = {
+                                                                '함께 풀기': TYPE_KEYS.TOGETHER_SELECT,
+                                                                '함께 풀기 + 스스로 풀기': TYPE_KEYS.TOGETHER_SELF,
+                                                                '문제': TYPE_KEYS.QUESTION_MATHINPUT,
+                                                                '수식 입력형': TYPE_KEYS.QUESTION_MATHINPUT,
+                                                                '스스로 풀기': TYPE_KEYS.QUESTION_MATHINPUT,
+                                                                '연습 하기': TYPE_KEYS.QUESTION_MATHINPUT,
+                                                                '개념': TYPE_KEYS.CONCEPT
+                                                            };
+                                                            setSelectedTypeKey(typeMap[page.type] || TYPE_KEYS.QUESTION_MATHINPUT);
                                                         }
 
                                                     } catch (e) {
