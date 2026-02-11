@@ -28,7 +28,7 @@ const createTogetherSelfStrategy = (config) => {
         normalize(raw) {
             return {
                 title: raw?.mainQuestion || raw?.title || "함께 풀기",
-                lines: raw?.subQuestions || raw?.lines || [],
+                lines: raw?.lines || raw?.subQuestions || [],
             };
         },
 

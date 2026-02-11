@@ -25,7 +25,7 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
     // AI가 준 타이틀이 너무 짧거나 '함께 풀기' 같은 분류명이면 적절한 문장으로 대체
     let displayTitle = data.title || "";
     if (!displayTitle || displayTitle === "함께 풀기" || displayTitle === "함께 풀기 + 스스로 풀기") {
-        displayTitle = isSelfStudy ? "배운 내용을 바탕으로 스스로 해결해 봅시다." : "함께 생각하고 문제를 해결해 봅시다.";
+        displayTitle = isSelfStudy ? "단계별로 빈칸을 입력해 봅시다." : "빈칸을 눌러 문제의 해결 과정을 알아 봅시다.";
     }
     $title.innerHTML = sanitizeLaTeX(displayTitle);
 
@@ -60,6 +60,8 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
                 parts.forEach(part => {
                     if (part.type === 'text') {
                         const span = doc.createElement('span');
+                        span.className = "math";
+                        span.setAttribute("translate", "no");
                         span.innerHTML = sanitizeLaTeX(part.content);
                         div.appendChild(span);
                     } else if (part.type === 'blank') {
@@ -96,6 +98,8 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
                 parts.forEach(part => {
                     if (part.type === 'text') {
                         const span = doc.createElement('span');
+                        span.className = "math fs40";
+                        span.setAttribute("translate", "no");
                         span.innerHTML = sanitizeLaTeX(part.content);
                         p.appendChild(span);
                     } else if (part.type === 'blank') {
@@ -112,18 +116,26 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
                         maskWrap.style.verticalAlign = "middle";
 
                         // [Improved Width Estimation] LaTeX awareness
+                        // Width should be based on visual horizontal space. Fractions are vertical.
                         const cleanAnswer = answer
                             .replace(/\\\(|\\\)|\\\[|\\\]/g, '') // Strip delimiters
-                            .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, '$1/$2') // Approximate fraction
+                            .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, (match, p1, p2) => {
+                                // For width estimation, a fraction is roughly as wide as its widest part
+                                return p1.length > p2.length ? p1 : p2;
+                            })
                             .replace(/\\dot\{(\w)\}/g, '$1') // Strip dot
                             .replace(/\\[a-zA-Z]+/g, ' ') // Strip other commands
                             .trim();
 
-                        const estimatedWidth = Math.max(80, (cleanAnswer.length * 20) + 40);
+                        // fs40 is ~40px height. Characters are roughly 22-25px wide for digits/letters.
+                        // We use a base width and a per-character width. 
+                        // Reduced character multiplier from 20 to 18, and base from 40 to 30.
+                        // Min width reduced from 80 to 60 for small fractions/single digits.
+                        const estimatedWidth = Math.max(60, (cleanAnswer.length * 18) + 30);
 
                         maskWrap.innerHTML = `
-                            <button type="button" class="btn-mask h90" style="width: ${estimatedWidth}px">${blankCount}번 딱지를 누르면 딱지가 벗겨집니다.</button>
-                            <span class="fs40" style="display:none">${sanitizeLaTeX(answer)}</span>
+                            <button type="button" class="btn-mask h90" style="margin-left:2px; margin-right:2px; width: ${estimatedWidth}px">${blankCount}번 딱지를 누르면 딱지가 벗겨집니다.</button>
+                            <span class="math fs40" style="display:none" translate="no">${sanitizeLaTeX(answer)}</span>
                         `;
                         p.appendChild(maskWrap);
                     }
