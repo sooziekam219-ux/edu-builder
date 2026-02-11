@@ -133,18 +133,45 @@ const KIM_HWA_KYUNG_PROMPT = `
   
 `;
 
-const BUILDER_SYSTEM_PROMPT = (isTogether) => isTogether ?
-    `당신은 수학 교육 콘텐츠 전문 개발자입니다. 
-  **중요 규칙:**
-  1. 모든 수식에 '$' 기호를 절대 사용하지 마세요.
-  2. 모든 수식은 반드시 '\\\\( ... \\\\)' (백슬래시 2개 포함) 형태로만 감싸세요.
-  3. 빈칸의 정답을 직접 계산하여 'correctIndex'를 도출하세요.
-  4. 'options'는 이미지에 설명된 정답을 포함하여 총 3개의 보기로 만드세요.
-  5. 'correctIndex'는 'options' 배열에서 실제 정답이 있는 순서(1, 2, 3 중 하나)를 숫자로 적으세요.
-  JSON 구조: { "type": "함께 풀기", "figure_bounds": [0,0,100,100], "figure_alt": "이미지 설명(수식X)", "mainQuestion": "...", "guideText": "▷ 빈칸을 눌러 정답을 선택하세요.", "lines": [{ "label": "(1)", "parts": [{ "type": "text", "content": "..." }, { "type": "blank", "options": ["A","B","C"], "correctIndex": 1, "width": 120 }] }] }`
-    :
-    `수학 콘텐츠 개발자로서 문제를 분석하세요. LaTeX는 \\\\( 수식 \\\\) 형태 유지.
-  JSON: { "type": "문제", "figure_bounds": [0,0,100,100], "figure_alt": "이미지 설명(수식X)", "mainQuestion": "...", "guideText": "▷ 빈칸을 눌러 답을 입력하세요.", "subQuestions": [{ "label": "(1)", "passage": "...", "answer": "...", "explanation": "...", "inputWidth": "w200" }] }`;
+const UNIVERSAL_BUILDER_PROMPT = `당신은 수학 교육 콘텐츠 전문 개발자입니다. 
+이미지를 분석하여 아래 4가지 유형 중 하나로 분류하고, 해당 규격에 맞는 JSON을 생성하세요.
+
+**분류 요령:**
+1. **together.self (함께+스스로)**: '함께 풀기' view01와 '스스로 풀기' view02가 함께 존재하는 유형. 함께 풀기는 라벨 클릭형, 스스로 풀기는 빈칸 여러 곳에 수식을 입력하는 유형. 복합 유형.
+2. **together.select (함께 풀기)**: 객선다형 빈칸을 눌러 정답을 고르는 인터랙티브 유형.
+3. **question.mathinput (문제)**: 빈칸에 직접 수식이나 숫자를 입력하는 표준 문제 유형.
+4. **concept (개념)**: 설명 위주의 페이지.
+
+**공통 규칙:**
+- 모든 수식은 반드시 '\\\\( ... \\\\)' 형태로 감싸세요. (백슬래시 2개)
+- 'mainQuestion'과 'guideText'를 이미지 맥락에 맞게 생성하세요.
+- 이미지에 삽화나 도형이 있다면 'figure_bounds'([ymin, xmin, ymax, xmax])를 0~1000 좌표계로 추출하세요. 없으면 [0,0,0,0].
+
+**유형별 데이터 구조:**
+
+1. **together 계열 (together.self, together.select)**:
+   - 'lines' 배열을 사용하세요.
+   - 각 line은 'label'과 'parts' 배열을 가집니다.
+   - 'parts'의 각 항목은 { 'type': 'text', 'content': '...' } 또는 { 'type': 'blank', 'options': [...], 'correctIndex': n, 'explanation': '...' } 입니다.
+   - together.self일 경우 'explanation'은 필수입니다.
+
+2. **question / concept 계열 (question.mathinput, concept)**:
+   - 'subQuestions' 배열을 사용하세요.
+   - 각 항목은 { 'label': '...', 'passage': '...', 'answer': '...', 'explanation': '...' } 형태입니다.
+
+**최종 JSON 응답은 마크다운 코드 블록 없이 순수 JSON만 반환하세요.**
+JSON 구조 예시:
+{
+  "typeKey": "question.mathinput",
+  "mainQuestion": "문제 제목",
+  "guideText": "가이드 텍스트",
+  "figure_bounds": [0,0,0,0],
+  "figure_alt": "이미지 설명",
+  "subQuestions": [
+    { "label": "(1)", "passage": "내용", "answer": "정답", "explanation": "해설" }
+  ]
+}`;
+
 
 // --- Helpers ---
 // edubuilder_260206.jsx 상단의 sanitizeLaTeX 함수 수정
@@ -251,7 +278,7 @@ const buildDraftInputConfig = ({
     // 3. Together Type or Standard Input
     return {
         typeKey: isTogether ? "together.custom" : "input.custom", // Dynamic Type Key
-        baseTemplateTypeKey: isTogether ? "together.select" : "question.mathinput",
+        baseTemplateTypeKey: isTogether ? TYPE_KEYS.TOGETHER_SELECT : TYPE_KEYS.QUESTION_MATHINPUT,
         manifest: {
             rowTemplate: isTogether ? ".txt1" : ".flex-row.ai-s.jc-sb",
         },
@@ -376,20 +403,32 @@ const App = () => {
     // 1️⃣ 패턴(Strategy Family) 판별
     let detectedFamily = "";
     if (activeData) {
-        // 순서 변경: TOGETHER_SELF를 최우선으로 판별
-        if (activeData.typeKey === TYPE_KEYS.TOGETHER_SELF || activeData.type?.includes('함께 풀기 + 스스로 풀기')) {
+        // [Universal Logic] Trust typeKey first
+        const tKey = activeData.typeKey || "";
+        if (tKey.startsWith("together")) {
             detectedFamily = "together";
+        } else if (tKey.startsWith("question") || tKey === TYPE_KEYS.CONCEPT) {
+            detectedFamily = "input";
         } else if (activeData.lines) {
             detectedFamily = "together";
-        } else if (activeData.subQuestions || activeData.questions) {
+        } else if (activeData.subQuestions) {
             detectedFamily = "input";
         }
     }
 
-    // 2️⃣ 의미 typeKey (있으면 사용, 없으면 empty)
-    const detectedTypeKey = activeData?.typeKey || "";
+    // 2️⃣ 의미 typeKey (AI 우선, 없으면 normalization)
+    let detectedTypeKey = activeData?.typeKey || "";
 
-    // 3️⃣ 기존 템플릿 존재 여부(EXACT 판별용)
+    // Normalize if missing but type string exists
+    if (!detectedTypeKey && activeData?.type) {
+        const typeStr = activeData.type;
+        if (typeStr.includes("함께 풀기 + 스스로 풀기")) detectedTypeKey = TYPE_KEYS.TOGETHER_SELF;
+        else if (typeStr.includes("함께 풀기")) detectedTypeKey = TYPE_KEYS.TOGETHER_SELECT;
+        else if (typeStr.includes("문제") || typeStr.includes("예제")) detectedTypeKey = TYPE_KEYS.QUESTION_MATHINPUT;
+        else if (typeStr.includes("개념")) detectedTypeKey = TYPE_KEYS.CONCEPT;
+    }
+
+    // 3️⃣ 기존 템플릿 존재 여부
     const hasExactTemplate = detectedTypeKey
         ? templates.some(t => t.typeKey === detectedTypeKey)
         : false;
@@ -423,14 +462,15 @@ const App = () => {
     const matchingDetectedTemplates = templates.filter(t => t.typeKey === detectedTypeKey);
     const hasExistingTemplate = matchingDetectedTemplates.length > 0;
 
-    const isInputType = detectedFamily === "input";// For Draft strategy scope
+    const isInputType = detectedFamily === "input" || detectedFamily === "together";
 
     // [Strict Detection Logic]
 
     // Header Mapping (Title Type -> Template TypeKey)
     const TYPE_MAPPING = {
-        "question.mathinput": ["문제", "예제", "따라 하기"], // Exact header matches
-        "together.select": ["함께 풀기"]
+        [TYPE_KEYS.QUESTION_MATHINPUT]: ["문제", "예제", "따라 하기"], // Exact header matches
+        "together.select": ["함께 풀기"],
+        "together.self": ["함께 풀기 + 스스로 풀기"]
     };
 
     if (detectedTypeKey) {
@@ -441,7 +481,7 @@ const App = () => {
 
         if (hasExistingTemplate && isHeaderMatch) {
             detectionStatus = "EXACT";
-        } else if (hasExistingTemplate && detectedTypeKey === 'question.mathinput') {
+        } else if (hasExistingTemplate && detectedTypeKey === TYPE_KEYS.QUESTION_MATHINPUT) {
             // Structure OK, Key OK, but Header Mismatch -> Similar -> Draft
             detectionStatus = "SIMILAR";
         } else if (isInputType) {
@@ -453,52 +493,44 @@ const App = () => {
 
     const onClickZip = () => {
         let customConfig = null;
-        let finalTemplateId = null; // 초기화
+        let finalTemplateId = null;
 
         const currentData = buildPages[activePageIndex]?.data;
-        const currentType = selectedTypeKey || currentData?.typeKey || currentData?.type || "";
-        let lookupType = currentType;
-        if (currentType === TYPE_KEYS.TOGETHER_SELF) lookupType = "together.self";
-        // [구조 개선] 명확한 타입 판별 logic
+
+        // 1. 현재 유형 결정 (Manual Override > AI Detected > Legacy string mapping)
+        let currentType = selectedTypeKey;
+        if (!currentType) {
+            currentType = currentData?.typeKey;
+        }
+        if (!currentType && currentData?.type) {
+            const typeStr = currentData.type;
+            if (typeStr.includes("함께 풀기 + 스스로 풀기")) currentType = TYPE_KEYS.TOGETHER_SELF;
+            else if (typeStr.includes("함께 풀기")) currentType = TYPE_KEYS.TOGETHER_SELECT;
+            else if (typeStr.includes("개념")) currentType = TYPE_KEYS.CONCEPT;
+            else currentType = TYPE_KEYS.QUESTION_MATHINPUT;
+        }
+
+        // 2. 기본 플래그 설정
         const isConcept = currentType === TYPE_KEYS.CONCEPT;
         const isTogetherSelf = currentType === TYPE_KEYS.TOGETHER_SELF;
-        const isTogether = !isTogetherSelf && (currentType.startsWith("together") || currentType.includes("함께"));
+        const isTogether = isTogetherSelf || (currentType?.startsWith("together") || false);
 
         /**
-         * A. 템플릿 ID 결정 로직 (finalTemplateId)
-         * 1순위: 시스템이 완벽하게 감지했을 때 (EXACT)
-         * 2순위: 사용자가 수동으로 선택했을 때 (단, SIMILAR/NEW 상황에서만)
-         * 3순위: 그 외 유형별 Base 템플릿
+         * A. 템플릿 ID 결정 로직
          */
-        if (detectionStatus === "EXACT" && matchingDetectedTemplates.length > 0) {
+        if (selectedTemplateId) {
+            finalTemplateId = selectedTemplateId;
+        } else if (detectionStatus === "EXACT" && matchingDetectedTemplates.length > 0) {
             finalTemplateId = matchingDetectedTemplates[0].id;
         } else {
-            // 수동 선택값이 있다면 그것을 사용, 없다면 베이스 타입 결정
-            if (selectedTemplateId) {
-                finalTemplateId = selectedTemplateId;
-            } else {
-                // [FIX] Try to find specific matching template first
-                let templateMatch = templates.find(t => t.typeKey === currentType);
+            let baseTypeKey = TYPE_KEYS.QUESTION_MATHINPUT;
+            if (isConcept) baseTypeKey = TYPE_KEYS.CONCEPT;
+            else if (isTogetherSelf) baseTypeKey = TYPE_KEYS.TOGETHER_SELF;
+            else if (isTogether) baseTypeKey = TYPE_KEYS.TOGETHER_SELECT;
 
-                // [Alias] Handle together.self vs togetherself
-                if (!templateMatch && (currentType === TYPE_KEYS.TOGETHER_SELF || currentType === "together.self" || currentType === "togetherself")) {
-                    templateMatch = templates.find(t => t.typeKey === "together.self") ||
-                        templates.find(t => t.typeKey === "togetherself");
-                }
-
-                if (templateMatch) {
-                    finalTemplateId = templateMatch.id;
-                    console.log("[ZIP] Found exact/alias match:", templateMatch.typeKey, finalTemplateId);
-                } else {
-                    let baseTypeKey = "question.mathinput";
-                    if (isConcept) baseTypeKey = TYPE_KEYS.CONCEPT;
-                    else if (isTogetherSelf || isTogether) baseTypeKey = "together.select";
-
-                    const fallback = templates.find(t => t.typeKey === baseTypeKey);
-                    finalTemplateId = fallback?.id;
-                    console.log("[ZIP] Fallback applied:", baseTypeKey, finalTemplateId);
-                }
-            }
+            const fallback = templates.find(t => t.typeKey === baseTypeKey);
+            finalTemplateId = fallback?.id;
+            console.log("[ZIP] Fallback applied:", baseTypeKey, finalTemplateId);
         }
 
         // B. 커스텀 설정(Draft Config) 생성 로직
@@ -714,90 +746,119 @@ const App = () => {
             parsed.sections.forEach((sec, sIdx) => {
                 const title = sec.content.title || "";
 
-                // 1. 기본 타입 판별 (텍스트 포함 여부로 결정)
-                let isTogether = title.includes('함께');
-                let isSelf = title.includes('스스로');
+                // 1. 유형 판별 (Priority: TogetherSelf > Together/Self > Problem)
+                let detectedTypeKey = "";
+                let type = "";
 
-                let type = isTogether ? '함께 풀기' :
-                    isSelf ? '스스로 풀기' :
-                        title.includes('문제') ? '문제' :
-                            title.includes('발견') ? '발견하기' :
-                                title.includes('개념') ? '개념' : '개념';
+                if (isTogetherSelfSet && (title.includes('함께') || title.includes('스스로'))) {
+                    detectedTypeKey = TYPE_KEYS.TOGETHER_SELF;
+                    type = '함께 풀기 + 스스로 풀기';
+                } else if (title.includes('함께')) {
+                    detectedTypeKey = TYPE_KEYS.TOGETHER_SELECT;
+                    type = '함께 풀기';
+                } else if (title.includes('스스로')) {
+                    detectedTypeKey = TYPE_KEYS.TOGETHER_SELF;
+                    type = '스스로 풀기';
+                } else if (title.includes('개념')) {
+                    detectedTypeKey = TYPE_KEYS.CONCEPT;
+                    type = '개념';
+                } else {
+                    detectedTypeKey = TYPE_KEYS.QUESTION_MATHINPUT;
+                    type = '문제';
+                }
 
                 let body = sec.content.body || "";
                 let finalAnswers = [...(sec.answers || [])];
-                let detectedTypeKey = "";
 
-                // 2. [핵심] '함께'와 '스스로'가 공존하는 페이지(isTogetherSelfSet)인 경우
-                if (isTogetherSelfSet && (isTogether || isSelf)) {
-                    // 유형 명칭을 동일하게 맞춤
-                    type = '함께 풀기 + 스스로 풀기';
-                    detectedTypeKey = TYPE_KEYS.TOGETHER_SELF;
-
-                    // 함께 풀기 부분일 때만 '=' -> '□' 처리
-                    if (isTogether && !body.includes('□') && body.includes('=')) {
+                // 2. 특수 처리 (TOGETHER_SELF일 때)
+                if (detectedTypeKey === TYPE_KEYS.TOGETHER_SELF) {
+                    if (title.includes('함께') && !body.includes('□') && body.includes('=')) {
                         const extracted = [];
                         body = body.replace(/=\s*([^=\n]+)/g, (match, p1) => {
                             extracted.push(p1.trim());
                             return '= □';
                         });
                         finalAnswers = extracted;
-                    }
-
-                    if (isSelf && body.includes('___')) {
+                    } else if (title.includes('스스로') && body.includes('___')) {
                         body = body.replace(/_{2,}/g, '□');
                     }
-
-                    // finalAnswers는 AI가 추출한 sec.answers를 우선 사용
-                    finalAnswers = sec.answers || [];
-
-                }
-                // 3. 그 외 일반 유형
-                else {
-                    if (type === '개념') {
-                        detectedTypeKey = TYPE_KEYS.CONCEPT;
-                    } else if (isTogether) {
-                        detectedTypeKey = TYPE_KEYS.TOGETHER_SELECT;
-                    } else {
-                        detectedTypeKey = TYPE_KEYS.QUESTION_MATHINPUT;
-                    }
                 }
 
-                // subQuestions 생성
-                const updatedSubQs = body.split('\n')
-                    .filter(l => l.trim())
-                    .map((l, i) => ({
+                // subQuestions 생성 (Improved Answer Distribution)
+                const bodyLines = body.split('\n').filter(l => l.trim());
+                let answerPointer = 0;
+
+                const updatedSubQs = bodyLines.map((l, i) => {
+                    const rawText = l.replace(/^\(\d+\)\s*/, '');
+                    const blankCount = (rawText.match(/□/g) || []).length || 1; // 최소 1개
+                    const chunk = finalAnswers.slice(answerPointer, answerPointer + blankCount);
+                    answerPointer += blankCount;
+
+                    return {
                         id: i,
-                        text: l.replace(/^\(\d+\)\s*/, '')
-                    }));
+                        label: `(${i + 1})`,
+                        passage: rawText,
+                        answer: chunk.length > 1 ? chunk : (chunk[0] || ""),
+                        explanation: ""
+                    };
+                });
 
-                // 4. 페이지 생성 (하나의 section당 하나의 page를 push하므로 본문이 합쳐지지 않음)
+                // Together 계열을 위한 lines 구조 자동 생성
+                let lines = null;
+                if (detectedTypeKey === TYPE_KEYS.TOGETHER_SELF || detectedTypeKey === TYPE_KEYS.TOGETHER_SELECT) {
+                    let lineAnswerPointer = 0; // lines 전용 포인터
+                    lines = bodyLines.map((l, idx) => {
+                        const parts = [];
+                        const rawText = l.replace(/^\(\d+\)\s*/, '');
+                        const textParts = rawText.split('□');
+                        textParts.forEach((tp, i) => {
+                            if (tp) parts.push({ type: 'text', content: tp });
+                            if (i < textParts.length - 1) {
+                                const currentAns = finalAnswers[lineAnswerPointer] || "정답";
+                                lineAnswerPointer++;
+                                parts.push({
+                                    type: 'blank',
+                                    options: [currentAns, "오답1", "오답2"],
+                                    correctIndex: 1,
+                                    explanation: ""
+                                });
+                            }
+                        });
+                        return { label: `(${idx + 1})`, parts };
+                    });
+                }
+
+                // 4. 페이지 생성
                 if (type === '문제' && updatedSubQs.length >= 3) {
-                    for (let i = 0; i < subQs.length; i += 2) {
-                        const chunk = subQs.slice(i, i + 2);
+                    for (let i = 0; i < updatedSubQs.length; i += 2) {
+                        const chunk = updatedSubQs.slice(i, i + 2);
                         newPages.push({
                             id: Date.now() + sIdx + i,
                             type,
-                            typeKey: detectedTypeKey, // [New]
+                            typeKey: detectedTypeKey,
                             title: i === 0 ? title : `${title} (계속)`,
+                            mainQuestion: i === 0 ? title : `${title} (계속)`,
                             content: sec.content.instruction || "",
-                            body: chunk.map(q => q.text).join('\n'),
-                            answers: sec.answers ? sec.answers.slice(i, i + 2) : [],
-                            description: [{ text: generateLogicText(type, sec.subtype, sec.answers ? sec.answers.slice(i, i + 2) : []) }],
-                            subQuestions: chunk
+                            body: chunk.map(q => q.passage).join('\n'),
+                            answers: chunk.flatMap(q => Array.isArray(q.answer) ? q.answer : [q.answer]),
+                            description: [{ text: generateLogicText(type, sec.subtype, chunk.flatMap(q => Array.isArray(q.answer) ? q.answer : [q.answer])) }],
+                            subQuestions: chunk,
+                            lines: null
                         });
                     }
                 } else {
                     newPages.push({
                         id: Date.now() + sIdx,
-                        type: type,              // '함께 풀기 + 스스로 풀기'로 저장됨
-                        typeKey: detectedTypeKey, // TOGETHER_SELF로 저장됨
-                        title: title,            // '함께 풀기' 또는 '스스로 풀기' 원본 제목 유지
+                        type: type,
+                        typeKey: detectedTypeKey,
+                        title: title,
+                        mainQuestion: title,
                         content: sec.content.instruction || "",
-                        body: body,              // 해당 섹션의 본문만 들어감
+                        body: body,
                         answers: finalAnswers,
                         description: [{ text: generateLogicText(type, sec.subtype, finalAnswers) }],
-                        subQuestions: updatedSubQs
+                        subQuestions: updatedSubQs,
+                        lines: lines
                     });
                 }
             });
@@ -917,142 +978,142 @@ const App = () => {
     };
 
 
-    const generatePPTX = () => {
-        if (!window.PptxGenJS || pages.length === 0) {
-            alert("PPT 생성 도구 로딩 중이거나 페이지가 없습니다.");
-            return;
-        }
-        try {
-            const pptx = new window.PptxGenJS();
-            pptx.layout = 'LAYOUT_16x9';
-            const fontOpts = { fontSize: 9, fontFace: 'Malgun Gothic' };
-            const labelOpts = { ...fontOpts, fill: 'E5E5E5', bold: true };
-            const borderStyle = { color: '000000', width: 0.5 };
+    // const generatePPTX = () => {
+    //     if (!window.PptxGenJS || pages.length === 0) {
+    //         alert("PPT 생성 도구 로딩 중이거나 페이지가 없습니다.");
+    //         return;
+    //     }
+    //     try {
+    //         const pptx = new window.PptxGenJS();
+    //         pptx.layout = 'LAYOUT_16x9';
+    //         const fontOpts = { fontSize: 9, fontFace: 'Malgun Gothic' };
+    //         const labelOpts = { ...fontOpts, fill: 'E5E5E5', bold: true };
+    //         const borderStyle = { color: '000000', width: 0.5 };
 
-            pages.forEach((page, index) => {
-                const slide = pptx.addSlide();
+    //         pages.forEach((page, index) => {
+    //             const slide = pptx.addSlide();
 
-                // 1. Header
-                const headerRows = [
-                    [{ text: "학교급", options: labelOpts }, { text: metadata.schoolLevel, options: fontOpts }, { text: "학년", options: labelOpts }, { text: metadata.grade, options: fontOpts }, { text: "과목", options: labelOpts }, { text: metadata.subject, options: fontOpts }, { text: "저자", options: labelOpts }, { text: metadata.author, options: fontOpts }, { text: "유형", options: labelOpts }, { text: "HTML5", options: fontOpts }],
-                    [{ text: "단원명", options: labelOpts }, { text: metadata.unit, options: fontOpts }, { text: "차시명", options: labelOpts }, { text: metadata.session, options: fontOpts }, { text: "활동 구분", options: labelOpts }, { text: page.type, options: fontOpts }, { text: "ACTIVITY", options: labelOpts }, { text: metadata.activityName, options: fontOpts }, { text: "페이지", options: labelOpts }, { text: (index + 1).toString(), options: { ...fontOpts, align: 'center' } }]
-                ];
-                slide.addTable(headerRows, { x: 0, y: 0, w: 10.0, h: 0.45, border: { pt: 0.5, color: "999999" }, align: "center", valign: "middle", colW: [0.8, 1.2, 0.8, 1.2, 0.8, 1.2, 0.8, 1.2, 0.8, 1.2] });
+    //             // 1. Header
+    //             const headerRows = [
+    //                 [{ text: "학교급", options: labelOpts }, { text: metadata.schoolLevel, options: fontOpts }, { text: "학년", options: labelOpts }, { text: metadata.grade, options: fontOpts }, { text: "과목", options: labelOpts }, { text: metadata.subject, options: fontOpts }, { text: "저자", options: labelOpts }, { text: metadata.author, options: fontOpts }, { text: "유형", options: labelOpts }, { text: "HTML5", options: fontOpts }],
+    //                 [{ text: "단원명", options: labelOpts }, { text: metadata.unit, options: fontOpts }, { text: "차시명", options: labelOpts }, { text: metadata.session, options: fontOpts }, { text: "활동 구분", options: labelOpts }, { text: page.type, options: fontOpts }, { text: "ACTIVITY", options: labelOpts }, { text: metadata.activityName, options: fontOpts }, { text: "페이지", options: labelOpts }, { text: (index + 1).toString(), options: { ...fontOpts, align: 'center' } }]
+    //             ];
+    //             slide.addTable(headerRows, { x: 0, y: 0, w: 10.0, h: 0.45, border: { pt: 0.5, color: "999999" }, align: "center", valign: "middle", colW: [0.8, 1.2, 0.8, 1.2, 0.8, 1.2, 0.8, 1.2, 0.8, 1.2] });
 
-                // 2. Layout
-                const mainY = 0.6; const bottomY = 5.4;
-                const leftW = 6.8; const rightW = 2.6; const contentX = 0.2; const rightX = 7.2;
-                const narrH = 0.9; const refH = 1.3; const descH = bottomY - refH - 0.1 - mainY; const contentH = bottomY - narrH - 0.1 - mainY;
+    //             // 2. Layout
+    //             const mainY = 0.6; const bottomY = 5.4;
+    //             const leftW = 6.8; const rightW = 2.6; const contentX = 0.2; const rightX = 7.2;
+    //             const narrH = 0.9; const refH = 1.3; const descH = bottomY - refH - 0.1 - mainY; const contentH = bottomY - narrH - 0.1 - mainY;
 
-                // [LAYOUT ADJUSTMENT] Concept = Full Width
-                const isConcept = page.type === '개념';
-                const actualLeftW = isConcept ? 9.6 : leftW;
+    //             // [LAYOUT ADJUSTMENT] Concept = Full Width
+    //             const isConcept = page.type === '개념';
+    //             const actualLeftW = isConcept ? 9.6 : leftW;
 
-                // [Left] Main Content Box
-                slide.addShape(pptx.ShapeType.rect, { x: contentX, y: mainY, w: actualLeftW, h: contentH, fill: 'FFFFFF', line: borderStyle });
+    //             // [Left] Main Content Box
+    //             slide.addShape(pptx.ShapeType.rect, { x: contentX, y: mainY, w: actualLeftW, h: contentH, fill: 'FFFFFF', line: borderStyle });
 
-                let currentY = mainY + 0.2;
+    //             let currentY = mainY + 0.2;
 
-                // [Image] Top Title Banner
-                const titleImg = ASSETS.TITLES[page.type] || ASSETS.TITLES['개념'];
-                slide.addImage({ path: titleImg, x: contentX + 0.2, y: currentY, w: 0.8, h: 0.4 });
-                currentY += 0.5;
+    //             // [Image] Top Title Banner
+    //             const titleImg = ASSETS.TITLES[page.type] || ASSETS.TITLES['개념'];
+    //             slide.addImage({ path: titleImg, x: contentX + 0.2, y: currentY, w: 0.8, h: 0.4 });
+    //             currentY += 0.5;
 
-                // Content Text
-                if (page.content) {
-                    slide.addText(page.content, { x: contentX + 0.2, y: currentY, w: actualLeftW - 0.4, h: 0.4, fontSize: 11, bold: true, color: '333333', fontFace: 'Malgun Gothic' });
-                    currentY += 0.5;
-                }
+    //             // Content Text
+    //             if (page.content) {
+    //                 slide.addText(page.content, { x: contentX + 0.2, y: currentY, w: actualLeftW - 0.4, h: 0.4, fontSize: 11, bold: true, color: '333333', fontFace: 'Malgun Gothic' });
+    //                 currentY += 0.5;
+    //             }
 
-                // *** Body Rendering ***
-                const textLineHeight = isConcept ? 0.3 : 0.4;
-                const hasSubQuestions = page.subQuestions && page.subQuestions.length > 0;
+    //             // *** Body Rendering ***
+    //             const textLineHeight = isConcept ? 0.3 : 0.4;
+    //             const hasSubQuestions = page.subQuestions && page.subQuestions.length > 0;
 
 
-                if (hasSubQuestions) {
-                    page.subQuestions.forEach((sq, qIdx) => {
-                        const qStartX = contentX + 0.2;
-                        const textAvailW = actualLeftW - 2.0;
-                        const nextY = renderMathText(slide, sq.text, qStartX, currentY, textAvailW, 0.4, page);
+    //             if (hasSubQuestions) {
+    //                 page.subQuestions.forEach((sq, qIdx) => {
+    //                     const qStartX = contentX + 0.2;
+    //                     const textAvailW = actualLeftW - 2.0;
+    //                     const nextY = renderMathText(slide, sq.text, qStartX, currentY, textAvailW, 0.4, page);
 
-                        if (page.type !== '개념' && !page.type.includes('발견') && page.type !== '함께 풀기') {
-                            const inputW = 1.5; const inputH = 0.4;
-                            const inputX = contentX + actualLeftW - inputW - 0.2;
-                            slide.addShape(pptx.ShapeType.rect, { x: inputX, y: currentY, w: inputW, h: inputH, fill: 'FFFFFF', line: { color: '999999', width: 1 } });
+    //                     if (page.type !== '개념' && !page.type.includes('발견') && page.type !== '함께 풀기') {
+    //                         const inputW = 1.5; const inputH = 0.4;
+    //                         const inputX = contentX + actualLeftW - inputW - 0.2;
+    //                         slide.addShape(pptx.ShapeType.rect, { x: inputX, y: currentY, w: inputW, h: inputH, fill: 'FFFFFF', line: { color: '999999', width: 1 } });
 
-                            // 2. 입력칸 정중앙에 아이콘 이미지 배치 (가로/세로 0.25 크기 기준)
-                            const iconSize = 0.25;
-                            const centerX = inputX + (inputW - iconSize) / 2;
-                            const centerY = currentY + (inputH - iconSize) / 2;
+    //                         // 2. 입력칸 정중앙에 아이콘 이미지 배치 (가로/세로 0.25 크기 기준)
+    //                         const iconSize = 0.25;
+    //                         const centerX = inputX + (inputW - iconSize) / 2;
+    //                         const centerY = currentY + (inputH - iconSize) / 2;
 
-                            slide.addImage({
-                                path: 'https://i.imgur.com/5LhWfL3.png',
-                                x: centerX,
-                                y: centerY,
-                                w: iconSize,
-                                h: iconSize
-                            });
+    //                         slide.addImage({
+    //                             path: 'https://i.imgur.com/5LhWfL3.png',
+    //                             x: centerX,
+    //                             y: centerY,
+    //                             w: iconSize,
+    //                             h: iconSize
+    //                         });
 
-                            const btnW = 0.4; const btnH = 0.25;
-                            const btnX = inputX + inputW - btnW;
-                            const btnY = currentY + inputH + 0.1;
+    //                         const btnW = 0.4; const btnH = 0.25;
+    //                         const btnX = inputX + inputW - btnW;
+    //                         const btnY = currentY + inputH + 0.1;
 
-                            const btnImg = ASSETS.BUTTONS['CHECK'];
-                            slide.addImage({ path: btnImg, x: btnX, y: btnY, w: btnW, h: btnH });
-                        }
+    //                         const btnImg = ASSETS.BUTTONS['CHECK'];
+    //                         slide.addImage({ path: btnImg, x: btnX, y: btnY, w: btnW, h: btnH });
+    //                     }
 
-                        const blockH = Math.max((nextY - currentY), (0.4 + 0.1 + 0.25));
-                        currentY += blockH + 0.3;
-                    });
-                } else {
-                    if (page.body) {
-                        renderMathText(slide, page.body, contentX + 0.2, currentY, actualLeftW - 0.4, textLineHeight, page);
-                    }
+    //                     const blockH = Math.max((nextY - currentY), (0.4 + 0.1 + 0.25));
+    //                     currentY += blockH + 0.3;
+    //                 });
+    //             } else {
+    //                 if (page.body) {
+    //                     renderMathText(slide, page.body, contentX + 0.2, currentY, actualLeftW - 0.4, textLineHeight, page);
+    //                 }
 
-                    if (page.type !== '개념' && page.type !== '함께 풀기' && !hasSubQuestions) {
-                        const hasAnswer = page.answers && page.answers.length > 0;
-                        const btnImg = hasAnswer ? ASSETS.BUTTONS['CHECK'] : ASSETS.BUTTONS['SAVE'];
-                        const retryImg = ASSETS.BUTTONS['RETRY'];
+    //                 if (page.type !== '개념' && page.type !== '함께 풀기' && !hasSubQuestions) {
+    //                     const hasAnswer = page.answers && page.answers.length > 0;
+    //                     const btnImg = hasAnswer ? ASSETS.BUTTONS['CHECK'] : ASSETS.BUTTONS['SAVE'];
+    //                     const retryImg = ASSETS.BUTTONS['RETRY'];
 
-                        const btnW = 0.4; const btnH = 0.25;
-                        const btnX = contentX + actualLeftW - btnW - 0.1;
-                        const btnY = mainY + contentH - btnH - 0.1;
+    //                     const btnW = 0.4; const btnH = 0.25;
+    //                     const btnX = contentX + actualLeftW - btnW - 0.1;
+    //                     const btnY = mainY + contentH - btnH - 0.1;
 
-                        slide.addImage({ path: btnImg, x: btnX, y: btnY, w: btnW, h: btnH });
-                        slide.addImage({ path: retryImg, x: btnX - btnW - 0.05, y: btnY, w: btnW, h: btnH });
-                    }
-                }
+    //                     slide.addImage({ path: btnImg, x: btnX, y: btnY, w: btnW, h: btnH });
+    //                     slide.addImage({ path: retryImg, x: btnX - btnW - 0.05, y: btnY, w: btnW, h: btnH });
+    //                 }
+    //             }
 
-                // Render Right Panel ALWAYS (even for Concept)
-                slide.addShape(pptx.ShapeType.rect, { x: rightX, y: mainY, w: rightW, h: descH, fill: 'FFFFFF', line: borderStyle });
-                slide.addText("Description (Logic)", { x: rightX, y: mainY, w: rightW, h: 0.3, ...fontOpts, color: 'FFFFFF', align: 'center', fill: '666666', bold: true });
+    //             // Render Right Panel ALWAYS (even for Concept)
+    //             slide.addShape(pptx.ShapeType.rect, { x: rightX, y: mainY, w: rightW, h: descH, fill: 'FFFFFF', line: borderStyle });
+    //             slide.addText("Description (Logic)", { x: rightX, y: mainY, w: rightW, h: 0.3, ...fontOpts, color: 'FFFFFF', align: 'center', fill: '666666', bold: true });
 
-                const descText = page.description?.[0]?.text || "";
-                slide.addText(descText, { x: rightX + 0.1, y: mainY + 0.4, w: rightW - 0.2, h: descH - 0.5, ...fontOpts, color: '333333', valign: 'top', fontFace: 'Consolas' });
+    //             const descText = page.description?.[0]?.text || "";
+    //             slide.addText(descText, { x: rightX + 0.1, y: mainY + 0.4, w: rightW - 0.2, h: descH - 0.5, ...fontOpts, color: '333333', valign: 'top', fontFace: 'Consolas' });
 
-                // [Right] Reference
-                const refY = bottomY - refH;
-                slide.addShape(pptx.ShapeType.rect, { x: rightX, y: refY, w: rightW, h: refH, fill: 'FFFFFF', line: borderStyle });
-                slide.addText("참고", { x: rightX, y: refY, w: rightW, h: 0.3, ...fontOpts, color: 'FFFFFF', align: 'center', fill: '888888', bold: true });
-                slide.addText("-", { x: rightX + 0.1, y: refY + 0.4, w: rightW - 0.2, h: refH - 0.5, ...fontOpts, color: '555555', valign: 'top' });
+    //             // [Right] Reference
+    //             const refY = bottomY - refH;
+    //             slide.addShape(pptx.ShapeType.rect, { x: rightX, y: refY, w: rightW, h: refH, fill: 'FFFFFF', line: borderStyle });
+    //             slide.addText("참고", { x: rightX, y: refY, w: rightW, h: 0.3, ...fontOpts, color: 'FFFFFF', align: 'center', fill: '888888', bold: true });
+    //             slide.addText("-", { x: rightX + 0.1, y: refY + 0.4, w: rightW - 0.2, h: refH - 0.5, ...fontOpts, color: '555555', valign: 'top' });
 
-                // [Bottom] Narration
-                const narrY = bottomY - narrH;
-                slide.addShape(pptx.ShapeType.rect, { x: contentX, y: narrY, w: leftW, h: narrH, fill: 'FFFFFF', line: borderStyle });
-                slide.addText("Latex 수식", { x: contentX, y: narrY, w: 1.5, h: 0.3, ...fontOpts, color: '333333', bold: true });
+    //             // [Bottom] Narration
+    //             const narrY = bottomY - narrH;
+    //             slide.addShape(pptx.ShapeType.rect, { x: contentX, y: narrY, w: leftW, h: narrH, fill: 'FFFFFF', line: borderStyle });
+    //             slide.addText("Latex 수식", { x: contentX, y: narrY, w: 1.5, h: 0.3, ...fontOpts, color: '333333', bold: true });
 
-                const rawContent = page.body || "(No Content)";
-                slide.addText(rawContent, {
-                    x: contentX + 0.1, y: narrY + 0.3, w: leftW - 0.2, h: narrH - 0.4,
-                    ...fontOpts, color: '555555', valign: 'top', fontFace: 'Consolas'
-                });
+    //             const rawContent = page.body || "(No Content)";
+    //             slide.addText(rawContent, {
+    //                 x: contentX + 0.1, y: narrY + 0.3, w: leftW - 0.2, h: narrH - 0.4,
+    //                 ...fontOpts, color: '555555', valign: 'top', fontFace: 'Consolas'
+    //             });
 
-                slide.addText(`${metadata.schoolLevel} ${metadata.grade} ${metadata.subject} | 저자: ${metadata.author}`, { x: 0.2, y: 5.45, w: 6.0, h: 0.2, fontSize: 7, color: '9CA3AF' });
-            });
+    //             slide.addText(`${metadata.schoolLevel} ${metadata.grade} ${metadata.subject} | 저자: ${metadata.author}`, { x: 0.2, y: 5.45, w: 6.0, h: 0.2, fontSize: 7, color: '9CA3AF' });
+    //         });
 
-            pptx.writeFile({ fileName: `Storyboard_${metadata.unit}_${Date.now()}.pptx` });
-        } catch (err) { console.error(err); alert(`PPT 생성 오류: ${err.message}`); }
-    };
+    //         pptx.writeFile({ fileName: `Storyboard_${metadata.unit}_${Date.now()}.pptx` });
+    //     } catch (err) { console.error(err); alert(`PPT 생성 오류: ${err.message}`); }
+    // };
 
     const addPage = () => {
         if (buildPages.length >= 4) return;
@@ -1080,16 +1141,12 @@ const App = () => {
             reader.onload = () => r(reader.result.split(',')[1]);
             reader.readAsDataURL(file);
         });
-        const template = templates.find(t => t.id === selectedTemplateId);
-        // [Fixed] Check selectedTypeKey as well
-        const isTogether = (template?.typeKey || selectedTypeKey || "").startsWith('together');
-        const systemPrompt = BUILDER_SYSTEM_PROMPT(isTogether);
 
         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 contents: [{ parts: [{ text: "Extract JSON for build." }, { inlineData: { mimeType: "image/png", data: base64 } }] }],
-                systemInstruction: { parts: [{ text: systemPrompt }] },
+                systemInstruction: { parts: [{ text: UNIVERSAL_BUILDER_PROMPT }] },
                 generationConfig: { responseMimeType: "application/json" }
             })
         });
@@ -1100,8 +1157,7 @@ const App = () => {
         }
 
         const data = await res.json();
-
-        if (!data.candidates || !data.candidates[0]) {
+        if (!data.candidates || data.candidates.length === 0) {
             console.error("Gemini No Candidates:", data);
             if (data.promptFeedback?.blockReason) {
                 throw new Error(`AI Safety Block: ${data.promptFeedback.blockReason}`);
@@ -1300,11 +1356,11 @@ const App = () => {
                                     <MonitorPlay size={20} /> 분석 시작
                                 </button>
                             )}
-                            {activeTab === 'storyboard' && (
+                            {/* {activeTab === 'storyboard' && (
                                 <button onClick={generatePPTX} className="flex items-center gap-2 px-8 py-3 bg-indigo-600 text-white rounded-full font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 hover:shadow-xl hover:scale-105 transition-all">
                                     <Download size={20} /> PPTX 다운로드
                                 </button>
-                            )}
+                            )} */}
                         </div>
                     </header>
 
@@ -1362,7 +1418,9 @@ const App = () => {
                                 </div>
                                 <h3 className="text-3xl font-bold text-slate-800 tracking-tight text-center">교과서 원고 업로드</h3>
                                 <p className="text-slate-500 font-medium mt-4 text-center max-w-lg leading-relaxed">
-                                    최대 3장의 교과서 png를 업로드하면 한 번에 분석하여 스토리보드를 생성합니다.<br />
+                                    - 수학 김화경 교과서 png를 업로드하면 분석하여 스토리보드를 생성합니다.
+                                    <br />
+                                    - 문제, 함께 풀기, 함께 풀기 + 스스로 풀기 유형만 가능합니다.<br />
                                     <span className="text-indigo-500 font-bold">AI가 자동으로 콘텐츠 유형 판별 및 텍스트 추출, 정답 및 해설 내용을 작성합니다. <br /> AI는 실수를 할 수 있습니다.</span>
                                 </p>
                             </div>
@@ -1485,7 +1543,26 @@ const App = () => {
                                                                         {sq.label}
                                                                     </div>
                                                                 )}
-                                                                <div className="text-lg font-medium text-slate-700 leading-relaxed flex-1">{renderMathToHTML(sq.text)}</div>
+                                                                <div className="flex-1 space-y-2">
+                                                                    <div className="text-lg font-medium text-slate-700 leading-relaxed">{renderMathToHTML(sq.passage || sq.text)}</div>
+                                                                    {sq.answer && (
+                                                                        <div className="flex flex-wrap gap-2 items-center">
+                                                                            <span className="text-xs font-black text-slate-400 uppercase tracking-widest mr-1">정답:</span>
+                                                                            {(Array.isArray(sq.answer) ? sq.answer : [sq.answer]).map((ans, idx) => {
+                                                                                let ansText = String(ans);
+                                                                                // LaTeX인데 \( \) 가 없으면 감싸줌
+                                                                                if (ansText.includes('\\') && !ansText.includes('\\(')) {
+                                                                                    ansText = `\\(${ansText}\\)`;
+                                                                                }
+                                                                                return (
+                                                                                    <div key={idx} className="text-sm font-bold text-emerald-600 px-3 py-1 rounded-lg inline-flex items-center">
+                                                                                        {renderMathToHTML(ansText)}
+                                                                                    </div>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                         )) : (
                                                             <div className="text-xl leading-relaxed text-slate-600 font-medium whitespace-pre-wrap">{renderMathToHTML(page.body)}</div>
@@ -1499,6 +1576,7 @@ const App = () => {
                                         <div className="lg:w-76 bg-slate-900 p-8 text-slate-300 flex flex-col">
                                             <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest block mb-6">Interaction Logic</label>
                                             <textarea
+
                                                 className="w-full flex-1 bg-transparent text-emerald-400 font-mono text-xs leading-relaxed border-none focus:ring-0 p-0 resize-none selection:bg-emerald-900"
                                                 value={page.description[0].text}
                                                 onChange={(e) => {
@@ -1525,7 +1603,7 @@ const App = () => {
                                                             description: page.description[0].text
                                                         }, null, 2);
 
-                                                        const systemPrompt = BUILDER_SYSTEM_PROMPT(page.typeKey || TYPE_KEYS.QUESTION_MATHINPUT);
+                                                        const systemPrompt = UNIVERSAL_BUILDER_PROMPT;
                                                         const isTogetherSelf = page.typeKey === TYPE_KEYS.TOGETHER_SELF || page.type === '함께 풀기 + 스스로 풀기';
                                                         let titleImg = ASSETS.TITLES[page.type] || ASSETS.TITLES['개념'];
 
@@ -1706,67 +1784,53 @@ const App = () => {
                                     {buildPages[activePageIndex]?.data ? (
                                         <div className="w-full space-y-10 animate-in slide-in-from-right-10 duration-500">
 
-                                            {/* [NEW] Detected Strategy Card */}
-                                            {isInputType && (
-                                                <div className={`p-6 rounded-[2.5rem] border-2 ${detectionStatus === 'EXACT' ? 'bg-green-50 border-green-200' : 'bg-indigo-50 border-indigo-200'}`}>
-                                                    <div className="flex items-center gap-3 mb-2">
-                                                        <ShieldCheck size={20} className={detectionStatus === 'EXACT' ? 'text-green-600' : 'text-indigo-600'} />
-                                                        <span className="font-black text-sm uppercase tracking-wider opacity-60">Detected Strategy</span>
+                                            {/* [NEW] Universal Strategy Card */}
+                                            <div className={`p-6 rounded-[2.5rem] border-2 transition-all ${detectedTypeKey ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-200'}`}>
+                                                <div className="flex items-center justify-between mb-4">
+                                                    <div className="flex items-center gap-3">
+                                                        <ShieldCheck size={20} className="text-indigo-600" />
+                                                        <span className="font-black text-xs uppercase tracking-wider text-slate-500">템플릿 탐색 결과</span>
+                                                    </div>
+                                                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase text-white ${hasExactTemplate ? 'bg-emerald-500' : 'bg-indigo-500'}`}>
+                                                        {hasExactTemplate ? '일치' : '불일치'}
+                                                    </span>
+                                                </div>
+
+                                                <div className="space-y-3">
+                                                    <div className="flex items-center justify-between p-3 bg-white rounded-2xl border border-indigo-100 shadow-sm">
+                                                        <span className="text-xs font-bold text-slate-400 uppercase">콘텐츠 유형</span>
+                                                        <span className="text-sm font-black text-slate-800">{detectedTypeKey || "Not Detected"}</span>
                                                     </div>
 
-                                                    {detectionStatus === 'EXACT' && (
-                                                        <div>
-                                                            <p className="font-bold text-lg text-green-800 mb-2">✅ 완벽히 일치하는 기존 템플릿 발견</p>
-                                                            <div className="bg-white p-3 rounded-xl border border-green-100 text-xs font-bold text-green-600">
-                                                                Type: {activeData.type} / {detectedTypeKey}<br />
-                                                                Family: {detectedFamily}<br />
-                                                                Matching Templates: {matchingDetectedTemplates.length} matches
-                                                            </div>
-                                                        </div>
-                                                    )}
-
-                                                    {(detectionStatus === 'SIMILAR' || detectionStatus === 'NEW') && (
-                                                        <div>
-                                                            <div className="flex items-center gap-2 mb-2">
-                                                                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase text-white ${detectionStatus === 'SIMILAR' ? 'bg-amber-400' : 'bg-rose-400'}`}>
-                                                                    {detectionStatus}
-                                                                </span>
-                                                                <p className="font-bold text-lg text-indigo-800">
-                                                                    {detectionStatus === 'SIMILAR' ? "유사한 구조의 템플릿이 있습니다." : "새로운 유형입니다. 다른 방법을 사용하여 생성하세요."}
-                                                                </p>
-                                                            </div>
-                                                            <p className="text-xs text-slate-500 font-bold mb-4">Input v1 모드로 생성합니다.</p>
-
-                                                            {/* Options for Draft */}
-                                                            <div className="flex gap-4">
-                                                                <div className="bg-white p-3 rounded-xl border border-indigo-100 flex-1">
-                                                                    <label className="text-[10px] font-black text-indigo-400 uppercase block mb-1">입력칸 유형</label>
-                                                                    <div className="flex bg-indigo-50 rounded-lg p-1">
-                                                                        {['math', 'text', 'ocr'].map(k => (
-                                                                            <button
-                                                                                key={k}
-                                                                                onClick={() => setInputKind(k)}
-                                                                                className={`flex-1 py-1 text-xs font-bold rounded-md transition-all ${inputKind === k ? 'bg-white shadow-sm text-indigo-600' : 'text-indigo-300 hover:text-indigo-500'}`}
-                                                                            >
-                                                                                {k}
-                                                                            </button>
-                                                                        ))}
-                                                                    </div>
+                                                    {!hasExactTemplate && (
+                                                        <div className="flex items-center gap-4">
+                                                            <div className="bg-white p-3 rounded-xl border border-indigo-100 flex-1">
+                                                                <label className="text-[10px] font-black text-indigo-400 uppercase block mb-1">Input Style</label>
+                                                                <div className="flex bg-indigo-50 rounded-lg p-1">
+                                                                    {['math', 'text', 'ocr'].map(k => (
+                                                                        <button
+                                                                            key={k}
+                                                                            onClick={() => setInputKind(k)}
+                                                                            className={`flex-1 py-1 text-xs font-bold rounded-md transition-all ${inputKind === k ? 'bg-white shadow-sm text-indigo-600' : 'text-indigo-300 hover:text-indigo-500'}`}
+                                                                        >
+                                                                            {k}
+                                                                        </button>
+                                                                    ))}
                                                                 </div>
-                                                                <div className="bg-white p-3 rounded-xl border border-indigo-100 flex-1">
-                                                                    <label className="text-[10px] font-black text-indigo-400 uppercase block mb-1">이미지 유무</label>
-                                                                    <button
-                                                                        onClick={() => setHasImage(!hasImage)}
-                                                                        className={`w-full py-2 text-xs font-bold rounded-lg transition-all ${hasImage ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}
-                                                                    >
-                                                                        {hasImage ? 'Image Enabled' : 'No Image'}
-                                                                    </button>
-                                                                </div>
+                                                            </div>
+                                                            <div className="bg-white p-3 rounded-xl border border-indigo-100 flex-1">
+                                                                <label className="text-[10px] font-black text-indigo-400 uppercase block mb-1">Illustration</label>
+                                                                <button
+                                                                    onClick={() => setHasImage(!hasImage)}
+                                                                    className={`w-full py-2 text-xs font-bold rounded-lg transition-all ${hasImage ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}
+                                                                >
+                                                                    {hasImage ? 'Enabled' : 'Disabled'}
+                                                                </button>
                                                             </div>
                                                         </div>
                                                     )}
                                                 </div>
-                                            )}
+                                            </div>
 
                                             <div className="flex items-center justify-between mt-8">
                                                 <h3 className="text-3xl font-extrabold tracking-tight text-slate-900">Page {buildPages[activePageIndex].id} Data</h3>
@@ -1824,43 +1888,83 @@ const App = () => {
                                                     </div>
                                                 ))}
 
-                                                {/* Case 2: Lines (Hello Together) */}
-                                                {buildPages[activePageIndex].data.lines && buildPages[activePageIndex].data.lines.map((line, i) => (
-                                                    <div key={i} className="p-6 bg-white border-2 border-amber-100 rounded-[2.5rem] space-y-4 shadow-sm">
-                                                        <div className="flex items-center gap-4 mb-2">
-                                                            <span className="w-8 h-8 bg-amber-500 text-white rounded-lg flex items-center justify-center font-black text-xs">{line.label || "L" + (i + 1)}</span>
-                                                            <span className="text-xs font-bold text-slate-400 uppercase">Line {i + 1}</span>
-                                                        </div>
-                                                        {line.parts && line.parts.map((part, pIdx) => (
-                                                            <div key={pIdx} className="pl-4 border-l-2 border-slate-100 ml-2">
-                                                                {part.type === 'text' && (
-                                                                    <div className="mb-2">
-                                                                        <label className="text-[10px] font-bold text-slate-400 uppercase">Text Part</label>
-                                                                        <textarea rows={1} className="w-full p-2 text-sm border-b border-slate-100 outline-none resize-none" value={part.content} onChange={(e) => {
-                                                                            const newLines = [...buildPages[activePageIndex].data.lines];
-                                                                            newLines[i].parts[pIdx].content = e.target.value;
-                                                                            updateCurrentPageData({ ...buildPages[activePageIndex].data, lines: newLines });
-                                                                        }} />
-                                                                    </div>
-                                                                )}
-                                                                {part.type === 'blank' && (
-                                                                    <div className="bg-slate-50 p-3 rounded-xl space-y-2">
-                                                                        <div className="flex justify-between">
-                                                                            <label className="text-[10px] font-bold text-blue-500 uppercase">Blank (Index: {part.correctIndex})</label>
-                                                                        </div>
-                                                                        <div className="flex gap-2 flex-wrap">
-                                                                            {part.options && part.options.map((opt, oIdx) => (
-                                                                                <span key={oIdx} className={`px-2 py-1 rounded-lg text-xs font-bold ${oIdx + 1 === part.correctIndex ? 'bg-blue-500 text-white' : 'bg-white border border-slate-200 text-slate-500'}`}>
-                                                                                    {opt}
-                                                                                </span>
-                                                                            ))}
-                                                                        </div>
-                                                                    </div>
-                                                                )}
+                                                {/* Case 2: Lines (Hello Together / Together+Self) */}
+                                                {buildPages[activePageIndex].data.lines && buildPages[activePageIndex].data.lines.map((line, i) => {
+                                                    const currentData = buildPages[activePageIndex].data;
+                                                    const isTogetherSelf = currentData.typeKey === TYPE_KEYS.TOGETHER_SELF || currentData.type?.includes("함께 풀기 + 스스로 풀기");
+                                                    const isSelfStudyMode = isTogetherSelf && (currentData.mainQuestion?.includes("스스로") || currentData.guideText?.includes("입력"));
+                                                    const themeColor = isSelfStudyMode ? 'indigo' : 'amber';
+
+                                                    return (
+                                                        <div key={i} className={`p-6 bg-white border-2 border-${themeColor}-100 rounded-[2.5rem] space-y-4 shadow-sm`}>
+                                                            <div className="flex items-center gap-4 mb-2">
+                                                                <span className={`w-8 h-8 bg-${themeColor}-500 text-white rounded-lg flex items-center justify-center font-black text-xs`}>
+                                                                    {line.label || "L" + (i + 1)}
+                                                                </span>
+                                                                <span className="text-xs font-bold text-slate-400 uppercase">
+                                                                    {isSelfStudyMode ? "Self Study Line" : "Together Line"} {i + 1}
+                                                                </span>
                                                             </div>
-                                                        ))}
-                                                    </div>
-                                                ))}
+                                                            {line.parts && line.parts.map((part, pIdx) => (
+                                                                <div key={pIdx} className="pl-4 border-l-2 border-slate-100 ml-2">
+                                                                    {part.type === 'text' && (
+                                                                        <div className="mb-2">
+                                                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Text Part</label>
+                                                                            <textarea rows={1} className="w-full p-2 text-sm border-b border-slate-100 outline-none resize-none bg-transparent focus:bg-white transition-all" value={part.content} onChange={(e) => {
+                                                                                const newLines = [...buildPages[activePageIndex].data.lines];
+                                                                                newLines[i].parts[pIdx].content = e.target.value;
+                                                                                updateCurrentPageData({ ...buildPages[activePageIndex].data, lines: newLines });
+                                                                            }} />
+                                                                        </div>
+                                                                    )}
+                                                                    {part.type === 'blank' && (
+                                                                        <div className={`bg-${themeColor}-50/50 p-4 rounded-xl space-y-3 border border-${themeColor}-100`}>
+                                                                            <div className="flex justify-between items-center">
+                                                                                <label className={`text-[10px] font-black text-${themeColor}-500 uppercase tracking-widest`}>
+                                                                                    {isSelfStudyMode ? "Input Field" : "Interactive Mask"} #{pIdx + 1}
+                                                                                </label>
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Ans Index</span>
+                                                                                    <input type="number" min="1" max="3" className="w-10 h-6 text-center text-xs font-bold rounded-md border border-slate-200" value={part.correctIndex || 1} onChange={(e) => {
+                                                                                        const newLines = [...buildPages[activePageIndex].data.lines];
+                                                                                        newLines[i].parts[pIdx].correctIndex = parseInt(e.target.value);
+                                                                                        updateCurrentPageData({ ...buildPages[activePageIndex].data, lines: newLines });
+                                                                                    }} />
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <div className="flex gap-2">
+                                                                                {part.options && part.options.map((opt, oIdx) => (
+                                                                                    <input
+                                                                                        key={oIdx}
+                                                                                        className={`flex-1 p-2 rounded-lg text-xs font-bold border transition-all ${oIdx + 1 === part.correctIndex ? `bg-${themeColor}-500 text-white border-${themeColor}-600` : 'bg-white border-slate-200 text-slate-500'}`}
+                                                                                        value={opt}
+                                                                                        onChange={(e) => {
+                                                                                            const newLines = [...buildPages[activePageIndex].data.lines];
+                                                                                            newLines[i].parts[pIdx].options[oIdx] = e.target.value;
+                                                                                            updateCurrentPageData({ ...buildPages[activePageIndex].data, lines: newLines });
+                                                                                        }}
+                                                                                    />
+                                                                                ))}
+                                                                            </div>
+
+                                                                            {isSelfStudyMode && (
+                                                                                <div className="space-y-1">
+                                                                                    <label className="text-[10px] font-black text-indigo-400 uppercase">Explanation (정답 확인용 해설)</label>
+                                                                                    <textarea rows={2} className="w-full p-2 bg-white rounded-lg text-xs font-medium border border-indigo-100 outline-none resize-none" value={part.explanation || ""} onChange={(e) => {
+                                                                                        const newLines = [...buildPages[activePageIndex].data.lines];
+                                                                                        newLines[i].parts[pIdx].explanation = e.target.value;
+                                                                                        updateCurrentPageData({ ...buildPages[activePageIndex].data, lines: newLines });
+                                                                                    }} />
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                             <button onClick={onClickZip} className="w-full py-7 bg-slate-900 text-white rounded-[3rem] font-black text-xl shadow-2xl hover:bg-black hover:scale-[1.01] active:scale-95 transition-all flex items-end justify-center gap-6">
                                                 <Download size={32} /> 콘텐츠 다운로드

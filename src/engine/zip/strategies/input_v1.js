@@ -39,7 +39,7 @@ const createInputStrategy = (config) => {
                 mainQuestion: raw?.mainQuestion ?? raw?.questionText ?? "",
                 questions: qs.map((q) => ({
                     label: q.label,
-                    promptLatex: q.promptLatex ?? q.passage ?? q.prompt ?? "",
+                    promptLatex: q.promptLatex ?? q.passage ?? q.text ?? q.prompt ?? "",
                     answerLatex: q.answerLatex ?? q.answer ?? "",
                     explanation: q.explanation ?? "",
                     imageUrl: q.imageUrl || null,

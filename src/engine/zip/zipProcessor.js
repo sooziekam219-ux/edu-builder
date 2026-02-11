@@ -12,6 +12,8 @@ import createInputStrategy from "./strategies/input_v1";
 import createTogetherStrategy from "./strategies/together_v1";
 import createConceptStrategy from "./strategies/concept_v1";
 import createTogetherSelfStrategy from "./strategies/together_self_v1"; // [NEW]
+import { loadManifest } from "./manifest"; // [NEW]
+
 
 const ENGINE_BY_TYPEKEY = {
   [togetherSelect.typeKey]: togetherSelect,
@@ -397,13 +399,17 @@ export async function processAndDownloadZip({
         }
       }
 
+      // 매니페스트 로드 (ZIP 내부 manifest.json 또는 기본값)
+      const pageManifest = await loadManifest({ zip: loadedZip, meta: templateMeta });
+
       // 엔진 주입
       engine.injectHtmlPage({
         doc,
-        manifest: templateMeta.manifest || {}, // TODO: manifest도 페이지별로 달라야 하나? 일단 공통 사용
+        manifest: pageManifest,
         data: normalizedData,
         pageIndex: i,
       });
+
 
       // Save HTML
       const serializer = new XMLSerializer();

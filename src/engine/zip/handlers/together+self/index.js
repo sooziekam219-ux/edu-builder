@@ -24,9 +24,34 @@ const togetherSelfHandler = {
 
     // Act.js 수정 필요 시 (현재는 단순 반환)
     patchActJs({ actJsText, data, pageIndex }) {
-        // [TODO] 스스로 풀기(View02)는 정답 확인 로직이 필요할 수 있음
-        // 하지만 초기 버전에서는 복잡한 JS 수정보다는 HTML 구조 생성에 집중
-        return actJsText;
+        // Collect all blank answers
+        const blanks = [];
+        (data.lines || []).forEach(line => {
+            if (line.parts) {
+                line.parts.filter(p => p.type === 'blank').forEach(p => {
+                    const options = p.options || [];
+                    const correctIdx = (parseInt(p.correctIndex, 10) || 1) - 1;
+                    blanks.push(options[correctIdx] || "");
+                });
+            }
+        });
+
+        let out = actJsText;
+
+        // 1. Together Mode (card_array)
+        const zeros = blanks.map(() => 0);
+        out = out.replace(/var\s+card_array\s*=\s*\[[\s\S]*?\]\s*;/g, `var card_array = ${JSON.stringify(zeros)};`);
+
+        // 2. Self Study Mode (dap_array, latexStr_array)
+        out = out.replace(/var\s+dap_array\s*=\s*\[[\s\S]*?\]\s*;/g, `var dap_array = ${JSON.stringify(blanks)};`);
+        out = out.replace(/var\s+latexStr_array\s*=\s*dap_array\s*;/g, `var latexStr_array = dap_array;`);
+        out = out.replace(/var\s+latexStr_array\s*=\s*\[[\s\S]*?\]\s*;/g, `var latexStr_array = ${JSON.stringify(blanks)};`);
+
+        // 3. Optional: Patch q_len
+        out = out.replace(/var\s+q_len\s*=\s*\d+;/, `var q_len = ${blanks.length};`);
+        out = out.replace(/var\s+card_len\s*=\s*card_array\.length\s*;/g, `var card_len = ${blanks.length};`);
+
+        return out;
     }
 };
 
