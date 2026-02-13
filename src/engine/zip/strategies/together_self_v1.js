@@ -1,9 +1,9 @@
 
 import { injectTogetherSelfBase } from "../handlers/together+self/base";
-import { TYPE_KEYS } from "../../typeKeys";
+// import { TYPE_KEYS } from "../../typeKeys";
 
 const createTogetherSelfStrategy = (config) => {
-    const { _typeKey, strategy } = config;
+    const { strategy } = config;
     const options = strategy.options || {}; // { hasImage, contentImageUrl, headerUrl, ... }
 
     return {
