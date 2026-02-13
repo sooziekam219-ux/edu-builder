@@ -112,6 +112,8 @@ const KIM_HWA_KYUNG_PROMPT = `
  ### STEP 0: 텍스트 정제 규칙 (Text Cleaning)
 - 이미지에 포함된 "답:", "정답:", "풀이:", "해설:"로 시작하는 텍스트는 교사용 정보이므로 **절대 'body'나 'content'에 포함하지 마라.**
 - 만약 문제 바로 아래에 정답이 적혀 있다면, 해당 정답은 'answers' 배열에만 넣고 'body'에서는 삭제하라.
+- 반드시 "숫자 = □" 와 같이 등호를 빈칸 밖의 *텍스트**로 분리하여 추출하십시오.
+
   **Study Section (스스로 풀기) Rules:**
   1. **Underline Detection:** Look for text with underlines (____) in the image. 
   2. **Symbol Conversion:** Replace the underlined text part with the symbol '□'.
@@ -145,11 +147,10 @@ JSON을 생성하기 전, 다음 항목을 먼저 확인하여 내부적으로 �
 
 ### STEP 2: 유형 결정 규칙 (Strict Decision Table)
 반드시 아래 규칙에 따라 'typeKey'를 결정하라:
-- [함께(O) + 스스로(O)]: together.self (복합형)
-- [함께(O) + 스스로(X)]: together.select (함께 풀기 전용)
-- [함께(X) + 스스로(O)]: together.self 
-- [문제]: question.mathinput 유형.
-- [개념]: concept
+- 이미지에 '함께 풀기'와 '스스로 풀기' 이미지가 모두 포함된 경우([함께(O) + 스스로(O)]): together.self (복합형)
+- 이미지에 '함께 풀기' 이미지만 포함된 경우([함께(O) + 스스로(X)]): together.select (함께 풀기 전용)
+- 이미지에 '스스로 풀기' 이미지만 포함된 경우([함께(X) + 스스로(O)]): together.self 
+- 이미지에 '함께 풀기'와 '스스로 풀기' 이미지가 모두 포함되지 않은 경우: question.mathinput 유형
 
 
 **공통 규칙:**
@@ -495,6 +496,314 @@ const App = () => {
         }
     }
 
+    function renderTypeEditor(currentData) {
+        const typeKey = currentData?.typeKey;
+
+        if (!typeKey) {
+            return (
+                <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-200 text-slate-400 font-bold">
+                    타입이 감지되지 않았어요.
+                </div>
+            );
+        }
+
+        if (typeKey === TYPE_KEYS.QUESTION_MATHINPUT) {
+            return <MathInputEditor currentData={currentData} onChange={updateCurrentPageData} />;
+        }
+
+        if (typeKey === TYPE_KEYS.TOGETHER_SELECT) {
+            return <TogetherSelectEditor currentData={currentData} onChange={updateCurrentPageData} />;
+        }
+
+        if (typeKey === TYPE_KEYS.TOGETHER_SELF) {
+            return (
+                <TogetherSelfEditor
+                    currentData={currentData}
+                    onChange={updateCurrentPageData}
+                    onClickLabelZip={onClickLabelZip}
+                />
+            );
+        }
+
+        return <GenericFallbackEditor currentData={currentData} onChange={updateCurrentPageData} />;
+    }
+
+
+    function ensureSubQuestions(data) {
+        const sub = Array.isArray(data.subQuestions) ? data.subQuestions : [];
+        return sub.length ? sub : [{ label: "1", passage: "", answer: "", explanation: "" }];
+    }
+
+    function SubQuestionsEditor({ currentData, onChange }) {
+        const subQuestions = ensureSubQuestions(currentData);
+
+        return (
+            <div className="space-y-6">
+                {subQuestions.map((item, i) => (
+                    <div key={i} className="p-8 bg-white border border-slate-100 rounded-[2.5rem] space-y-6 shadow-sm">
+                        <div className="flex items-start gap-5">
+                            <span className="w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center font-bold text-sm">
+                                {item.label || i + 1}
+                            </span>
+                            <div className="flex-1 space-y-2">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase">Question / Passage</label>
+                                <textarea
+                                    rows={2}
+                                    className="w-full p-3 bg-slate-50 rounded-xl text-sm font-medium outline-none resize-none"
+                                    value={item.passage || ""}
+                                    onChange={(e) => {
+                                        const next = [...subQuestions];
+                                        next[i] = { ...next[i], passage: e.target.value };
+                                        onChange({ ...currentData, subQuestions: next });
+                                    }}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-6">
+                            <div>
+                                <label className="text-[10px] font-bold text-emerald-500 uppercase mb-2 block">Correct Answer</label>
+                                <input
+                                    className="w-full p-3 bg-emerald-50/50 border border-emerald-100 rounded-xl text-sm font-bold text-emerald-700 outline-none"
+                                    value={item.answer || ""}
+                                    onChange={(e) => {
+                                        const next = [...subQuestions];
+                                        next[i] = { ...next[i], answer: e.target.value };
+                                        onChange({ ...currentData, subQuestions: next });
+                                    }}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] font-bold text-indigo-400 uppercase mb-2 block">Explanation</label>
+                                <input
+                                    className="w-full p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl text-sm font-bold text-indigo-700 outline-none"
+                                    value={item.explanation || ""}
+                                    onChange={(e) => {
+                                        const next = [...subQuestions];
+                                        next[i] = { ...next[i], explanation: e.target.value };
+                                        onChange({ ...currentData, subQuestions: next });
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                ))}
+
+                <button
+                    onClick={() =>
+                        onChange({
+                            ...currentData,
+                            subQuestions: [
+                                ...subQuestions,
+                                { label: String(subQuestions.length + 1), passage: "", answer: "", explanation: "" }
+                            ]
+                        })
+                    }
+                    className="w-full py-4 rounded-[2rem] bg-slate-100 hover:bg-slate-200 font-black text-sm text-slate-600"
+                >
+                    + Add Sub Question
+                </button>
+            </div>
+        );
+    }
+
+    function MathInputEditor({ currentData, onChange }) {
+        return <SubQuestionsEditor currentData={currentData} onChange={onChange} />;
+    }
+
+    function TogetherSelectEditor({ currentData, onChange }) {
+        return <SubQuestionsEditor currentData={currentData} onChange={onChange} />;
+    }
+
+    // together.self 전용
+    function ensureTogetherSelf(data) {
+        const together = data.together || {};
+        const self = data.self || {};
+
+        return {
+            ...data,
+            together: {
+                numbers: Array.isArray(together.numbers) && together.numbers.length
+                    ? together.numbers
+                    : [{ value: 1, labelEnabled: false }, { value: 2, labelEnabled: false }, { value: 3, labelEnabled: false }]
+            },
+            self: {
+                answers: Array.isArray(self.answers) && self.answers.length ? self.answers : ["", "", ""],
+                explanation: self.explanation || ""
+            }
+        };
+    }
+
+    function TogetherSelfEditor({ currentData, onChange }) {
+        const lines = Array.isArray(currentData?.lines) ? currentData.lines : [];
+        const isSelfStudy = !!currentData?.strategy?.options?.isSelfStudy;
+
+        // blank 파트만 한 번에 모으기(순서 유지)
+        const blanks = [];
+        lines.forEach((line, li) => {
+            (line.parts || []).forEach((part, pi) => {
+                if (part?.type === "blank") blanks.push({ li, pi, part });
+            });
+        });
+
+        // 편집 유틸
+        const patchPart = (li, pi, nextPart) => {
+            const nextLines = lines.map((l, idx) =>
+                idx !== li ? l : { ...l, parts: (l.parts || []).map((p, j) => (j !== pi ? p : nextPart)) }
+            );
+            onChange({ ...currentData, lines: nextLines });
+        };
+
+        const getBlankAnswer = (part) => {
+            const options = Array.isArray(part.options) ? part.options : [];
+            const idx = (parseInt(part.correctIndex, 10) || 1) - 1;
+            return options[idx] ?? "";
+        };
+
+        const setBlankAnswer = (li, pi, part, value) => {
+            // 엔진(base.js)이 options+correctIndex로 답을 뽑으니까 그 규칙 그대로 맞춤
+            patchPart(li, pi, { ...part, options: [value], correctIndex: 1 });
+        };
+
+        const toggleLabel = (li, pi, part) => {
+            patchPart(li, pi, { ...part, labelEnabled: !part.labelEnabled });
+        };
+
+        // 해설 1개만: 첫 번째 blank에만 저장
+        const firstBlank = blanks[0];
+        const singleExplanation =
+            firstBlank?.part?.explanation || "";
+
+        const setSingleExplanation = (value) => {
+            if (!firstBlank) return;
+            patchPart(firstBlank.li, firstBlank.pi, { ...firstBlank.part, explanation: value });
+        };
+
+        return (
+            <div className="space-y-8">
+                {/* Together Section */}
+                <div className="p-8 bg-amber-50/60 border border-amber-200 rounded-[2.5rem] space-y-5">
+                    <div>
+                        <div className="text-xs font-black uppercase tracking-widest text-amber-600">
+                            Together Section
+                        </div>
+                        <div className="text-sm font-bold text-slate-600 mt-1">
+                            각 딱지(blank)의 숫자 값 + 라벨 표시 여부
+                        </div>
+                        <div className="text-xs font-bold text-slate-400 mt-1">
+                            (다운로드는 아래 “콘텐츠 다운로드” 버튼을 누르면 반영됨)
+                        </div>
+                    </div>
+
+                    <div className="space-y-3">
+                        {blanks.map(({ li, pi, part }, idx) => (
+                            <div
+                                key={`${li}-${pi}`}
+                                className="flex items-center gap-3 bg-white rounded-2xl border border-amber-100 p-4"
+                            >
+                                <div className="w-10 h-10 rounded-xl bg-amber-500 text-white font-black flex items-center justify-center">
+                                    {idx + 1}
+                                </div>
+
+                                <div className="flex-1 grid grid-cols-3 gap-3 items-center">
+                                    <div className="col-span-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">
+                                            Number Value
+                                        </label>
+                                        <input
+                                            type="number"
+                                            className="w-full p-3 rounded-xl border border-slate-200 font-bold"
+                                            value={getBlankAnswer(part)}
+                                            onChange={(e) => setBlankAnswer(li, pi, part, e.target.value)}
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">
+                                            Label
+                                        </label>
+                                        <button
+                                            onClick={() => toggleLabel(li, pi, part)}
+                                            className={`w-full py-3 rounded-xl font-black text-xs transition-all ${part.labelEnabled
+                                                ? "bg-slate-900 text-white"
+                                                : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                                                }`}
+                                        >
+                                            {part.labelEnabled ? "ON" : "OFF"}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+
+                        {blanks.length === 0 && (
+                            <div className="p-6 bg-white rounded-2xl border border-amber-100 text-slate-400 font-bold">
+                                blank(딱지) 파트가 없습니다. lines/parts 구조를 확인하세요.
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Self Section */}
+                <div className="p-8 bg-indigo-50/60 border border-indigo-200 rounded-[2.5rem] space-y-6">
+                    <div>
+                        <div className="text-xs font-black uppercase tracking-widest text-indigo-600">
+                            Self Section
+                        </div>
+                        <div className="text-sm font-bold text-slate-600 mt-1">
+                            빈칸 정답 + 해설(1개)
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        {blanks.map(({ li, pi, part }, idx) => (
+                            <div key={`self-${li}-${pi}`} className="bg-white rounded-2xl border border-indigo-100 p-4">
+                                <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2">
+                                    Blank Answer #{idx + 1}
+                                </label>
+                                <input
+                                    className="w-full p-3 rounded-xl border border-slate-200 font-bold"
+                                    value={getBlankAnswer(part)}
+                                    onChange={(e) => setBlankAnswer(li, pi, part, e.target.value)}
+                                />
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="bg-white rounded-2xl border border-indigo-100 p-4">
+                        <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2">
+                            Explanation (1개) — 첫 번째 빈칸에 저장
+                        </label>
+                        <textarea
+                            rows={3}
+                            className="w-full p-3 rounded-xl border border-slate-200 font-medium resize-none"
+                            value={singleExplanation}
+                            onChange={(e) => setSingleExplanation(e.target.value)}
+                        />
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+
+    function GenericFallbackEditor({ currentData }) {
+        return (
+            <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-200 text-slate-500">
+                <div className="font-black mb-2">이 타입은 전용 에디터가 없어요.</div>
+                <pre className="text-xs overflow-auto">{JSON.stringify(currentData, null, 2)}</pre>
+            </div>
+        );
+    }
+
+    const onClickLabelZip = async (pageData) => {
+        // TODO: pageData.together.numbers 중 labelEnabled === true 인 것들로
+        // 라벨 올린 이미지 생성 → zip으로 묶어서 다운로드
+        console.log("LABEL ZIP:", pageData);
+    };
+
+
     const onClickZip = () => {
         let customConfig = null;
         let finalTemplateId = null;
@@ -743,49 +1052,60 @@ const App = () => {
 
                 // [Context Detection] Per Page (Image) Isolated Logic
                 // 1. 이미지 내 모든 섹션의 type과 title을 종합하여 탐색
+                // [수정] 1. 판별 기준 엄격화: 영문 'self' 등을 제외하고 명확한 한글 로고 텍스트에만 집중
                 const pageSections = parsed.sections || [];
-                const hasTogether = pageSections.some(s => {
-                    const type = (s.type || "").toLowerCase();
-                    const title = (s.content.title || "").toLowerCase();
-                    return type.includes("함께") || title.includes("함께") || type.includes("together");
-                });
-                const hasSelf = pageSections.some(s => {
-                    const type = (s.type || "").toLowerCase();
-                    const title = (s.content.title || "").toLowerCase();
-                    return type.includes("스스로") || title.includes("스스로") || type.includes("self");
-                });
-
-                // If both coexist in this specific image, use TOGETHER_SELF
+                const hasTogether = pageSections.some(s => (s.content.title || "").includes("함께"));
+                const hasSelf = pageSections.some(s => (s.content.title || "").includes("스스로"));
                 const isTogetherSelfSet = hasTogether && hasSelf;
 
                 parsed.sections.forEach((sec, sIdx) => {
                     const title = sec.content.title || "";
-
-                    // 1. 유형 판별 (Priority: TogetherSelf > Together/Self > Problem)
-                    let detectedTypeKey = "";
-                    let type = "";
-
                     const secType = (sec.type || "").toLowerCase();
                     const secTitle = (sec.content.title || "").toLowerCase();
 
-                    if (isTogetherSelfSet && (secType.includes('함께') || secType.includes('스스로') || secTitle.includes('함께') || secTitle.includes('스스로'))) {
+                    // 개별 섹션 성격 (추측성 영문 self/together 제외)
+                    const isThisSecSelf = secTitle.includes('스스로');
+                    const isThisSecTogether = secTitle.includes('함께');
+
+                    let detectedTypeKey = "";
+                    let type = "";
+
+                    // [우선순위 재설정]
+                    // 1순위: 한 페이지에 함께+스스로가 모두 있는 복합형인 경우
+                    if (isTogetherSelfSet && (isThisSecTogether || isThisSecSelf)) {
                         detectedTypeKey = TYPE_KEYS.TOGETHER_SELF;
-                        type = '함께 풀기 + 스스로 풀기';
-                    } else if (secType.includes('함께') || secTitle.includes('함께')) {
+                        type = isThisSecSelf ? '스스로 풀기' : '함께 풀기 + 스스로 풀기';
+                    }
+                    // 2순위: 단독 '함께 풀기' (스스로가 없는 경우) -> 무조건 SELECT(딱지형)
+                    else if (isThisSecTogether) {
                         detectedTypeKey = TYPE_KEYS.TOGETHER_SELECT;
                         type = '함께 풀기';
-                    } else if (secType.includes('스스로') || secTitle.includes('스스로')) {
+                    }
+                    // 3순위: 단독 '스스로 풀기'
+                    else if (isThisSecSelf) {
                         detectedTypeKey = TYPE_KEYS.TOGETHER_SELF;
                         type = '스스로 풀기';
-                    } else if (secType.includes('개념') || secTitle.includes('개념')) {
-                        detectedTypeKey = TYPE_KEYS.CONCEPT;
-                        type = '개념';
-                    } else {
+                    }
+                    // 4순위: 그 외 '개념' (타이틀에 '함께/스스로'가 절대 없을 때만)
+                    // else if (secType.includes('개념') || secTitle.includes('개념')) {
+                    //    detectedTypeKey = TYPE_KEYS.CONCEPT;
+                    //    type = '개념';
+                    // }
+                    // 5순위: 기본값
+                    else {
                         detectedTypeKey = TYPE_KEYS.QUESTION_MATHINPUT;
                         type = '문제';
                     }
 
+
+
                     let body = sec.content.body || "";
+
+
+                    // [추가] '답:' 혹은 '정답:' 텍스트 강제 필터링 로직
+                    // 텍스트 중간이나 끝에 "답: 1/4" 같은 형태가 들어오면 이를 제거합니다.
+                    body = body.replace(/(답|정답|풀이|해설)\s*[:\.]\s*.*(\n|$)/g, "").trim();
+
                     let finalAnswers = [...(sec.answers || [])];
 
                     // 2. 특수 처리 (TOGETHER_SELF일 때)
@@ -1374,7 +1694,7 @@ const App = () => {
                             <p className="text-slate-500 font-small mt-3 text-lg">
                                 {activeTab === 'analysis' && "교과서 이미지를 업로드하고 스토리보드를 생성하세요."}
                                 {activeTab === 'storyboard' && "생성된 스토리보드 화면을 확인하고 콘텐츠 생성을 진행하세요."}
-                                {activeTab === 'builder' && "세부 내용을 수정하여 최종 결과물을 다운받으세요."}
+                                {activeTab === 'builder' && "한 act파일을 구성한 후 세부 내용을 수정하여 최종 결과물을 다운받으세요."}
                                 {activeTab === 'library' && "템플릿 업로드 페이지입니다."}
                             </p>
                         </div>
@@ -1647,9 +1967,21 @@ const App = () => {
                                                         const text = data.candidates[0].content.parts[0].text;
                                                         const extracted = JSON.parse(text.replace(/```json/g, '').replace(/```/g, '').trim());
 
+                                                        const isSelfSection =
+                                                            (page.type || "").includes("스스로");
+
+
                                                         const finalExtracted = {
                                                             ...extracted,
-                                                            typeKey: page.typeKey || TYPE_KEYS.TOGETHER_SELF // 스토리보드 페이지가 가진 타입을 유지
+                                                            typeKey: page.typeKey || TYPE_KEYS.TOGETHER_SELF, // 스토리보드 페이지가 가진 타입을 유지
+                                                            strategy: {
+                                                                ...(extracted.strategy || {}),
+                                                                options: {
+                                                                    ...(extracted.strategy?.options || {}),
+                                                                    isSelfStudy: isSelfSection,
+                                                                }
+
+                                                            }
                                                         };
                                                         // 3. Add to Build Pages
                                                         const newBuildPages = [...buildPages];
@@ -1712,6 +2044,7 @@ const App = () => {
                     )}
 
                     {activeTab === 'builder' && (
+
                         <div className="grid grid-cols-3 gap-12 animate-in fade-in duration-500">
                             <div className="col-span-1 space-y-8">
                                 <div className="bg-white p-10 rounded-[3.5rem] border border-slate-200 shadow-sm">
@@ -1792,6 +2125,7 @@ const App = () => {
                             </div>
                             <div className="col-span-2">
                                 <div className="bg-white p-12 rounded-[4.5rem] border border-slate-200 shadow-sm min-h-[600px] flex flex-col relative overflow-hidden">
+
                                     {buildPages[activePageIndex]?.data ? (
                                         <div className="w-full space-y-10 animate-in slide-in-from-right-10 duration-500">
 
@@ -1861,121 +2195,7 @@ const App = () => {
                                                 </div>
                                             </div>
                                             <div className="space-y-6 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-                                                {/* Case 1: SubQuestions (General) */}
-                                                {buildPages[activePageIndex].data.subQuestions && buildPages[activePageIndex].data.subQuestions.map((item, i) => (
-                                                    <div key={i} className="p-8 bg-white border border-slate-100 rounded-[2.5rem] space-y-6 shadow-sm hover:shadow-md transition-shadow relative group">
-                                                        <div className="absolute top-6 right-6 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <GripVertical className="text-slate-300" />
-                                                        </div>
-                                                        <div className="flex items-start gap-5">
-                                                            <span className="w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center font-bold text-sm shadow-lg shadow-slate-200">{item.label || i + 1}</span>
-                                                            <div className="flex-1 space-y-2">
-                                                                <label className="text-[10px] font-bold text-slate-400 uppercase">Passage Content</label>
-                                                                <textarea rows={2} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-medium border-0 focus:ring-2 focus:ring-indigo-100 outline-none resize-none transition-all" value={item.passage || ""} onChange={(e) => {
-                                                                    const newSub = [...buildPages[activePageIndex].data.subQuestions];
-                                                                    newSub[i].passage = e.target.value;
-                                                                    updateCurrentPageData({ ...buildPages[activePageIndex].data, subQuestions: newSub });
-                                                                }} />
-                                                            </div>
-                                                        </div>
-                                                        <div className="grid grid-cols-2 gap-6">
-                                                            <div>
-                                                                <label className="text-[10px] font-bold text-emerald-500 uppercase mb-2 block">Correct Answer</label>
-                                                                <input className="w-full p-3 bg-emerald-50/50 border border-emerald-100 rounded-xl text-sm font-bold text-emerald-700 outline-none focus:ring-2 focus:ring-emerald-100 transition-all" value={item.answer || ""} onChange={(e) => {
-                                                                    const newSub = [...buildPages[activePageIndex].data.subQuestions];
-                                                                    newSub[i].answer = e.target.value;
-                                                                    updateCurrentPageData({ ...buildPages[activePageIndex].data, subQuestions: newSub });
-                                                                }} />
-                                                            </div>
-                                                            <div>
-                                                                <label className="text-[10px] font-bold text-indigo-400 uppercase mb-2 block">Explanation</label>
-                                                                <input className="w-full p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl text-sm font-bold text-indigo-700 outline-none focus:ring-2 focus:ring-indigo-100 transition-all" value={item.explanation || ""} onChange={(e) => {
-                                                                    const newSub = [...buildPages[activePageIndex].data.subQuestions];
-                                                                    newSub[i].explanation = e.target.value;
-                                                                    updateCurrentPageData({ ...buildPages[activePageIndex].data, subQuestions: newSub });
-                                                                }} />
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                ))}
-
-                                                {/* Case 2: Lines (Hello Together / Together+Self) */}
-                                                {buildPages[activePageIndex].data.lines && buildPages[activePageIndex].data.lines.map((line, i) => {
-                                                    const currentData = buildPages[activePageIndex].data;
-                                                    const isTogetherSelf = currentData.typeKey === TYPE_KEYS.TOGETHER_SELF || currentData.type?.includes("함께 풀기 + 스스로 풀기");
-                                                    const isSelfStudyMode = isTogetherSelf && (currentData.mainQuestion?.includes("스스로") || currentData.guideText?.includes("입력"));
-                                                    const themeColor = isSelfStudyMode ? 'indigo' : 'amber';
-
-                                                    return (
-                                                        <div key={i} className={`p-6 bg-white border-2 border-${themeColor}-100 rounded-[2.5rem] space-y-4 shadow-sm`}>
-                                                            <div className="flex items-center gap-4 mb-2">
-                                                                <span className={`w-8 h-8 bg-${themeColor}-500 text-white rounded-lg flex items-center justify-center font-black text-xs`}>
-                                                                    {line.label || "L" + (i + 1)}
-                                                                </span>
-                                                                <span className="text-xs font-bold text-slate-400 uppercase">
-                                                                    {isSelfStudyMode ? "Self Study Line" : "Together Line"} {i + 1}
-                                                                </span>
-                                                            </div>
-                                                            {line.parts && line.parts.map((part, pIdx) => (
-                                                                <div key={pIdx} className="pl-4 border-l-2 border-slate-100 ml-2">
-                                                                    {part.type === 'text' && (
-                                                                        <div className="mb-2">
-                                                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Text Part</label>
-                                                                            <textarea rows={1} className="w-full p-2 text-sm border-b border-slate-100 outline-none resize-none bg-transparent focus:bg-white transition-all" value={part.content} onChange={(e) => {
-                                                                                const newLines = [...buildPages[activePageIndex].data.lines];
-                                                                                newLines[i].parts[pIdx].content = e.target.value;
-                                                                                updateCurrentPageData({ ...buildPages[activePageIndex].data, lines: newLines });
-                                                                            }} />
-                                                                        </div>
-                                                                    )}
-                                                                    {part.type === 'blank' && (
-                                                                        <div className={`bg-${themeColor}-50/50 p-4 rounded-xl space-y-3 border border-${themeColor}-100`}>
-                                                                            <div className="flex justify-between items-center">
-                                                                                <label className={`text-[10px] font-black text-${themeColor}-500 uppercase tracking-widest`}>
-                                                                                    {isSelfStudyMode ? "Input Field" : "Interactive Mask"} #{pIdx + 1}
-                                                                                </label>
-                                                                                <div className="flex items-center gap-2">
-                                                                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Ans Index</span>
-                                                                                    <input type="number" min="1" max="3" className="w-10 h-6 text-center text-xs font-bold rounded-md border border-slate-200" value={part.correctIndex || 1} onChange={(e) => {
-                                                                                        const newLines = [...buildPages[activePageIndex].data.lines];
-                                                                                        newLines[i].parts[pIdx].correctIndex = parseInt(e.target.value);
-                                                                                        updateCurrentPageData({ ...buildPages[activePageIndex].data, lines: newLines });
-                                                                                    }} />
-                                                                                </div>
-                                                                            </div>
-
-                                                                            <div className="flex gap-2">
-                                                                                {part.options && part.options.map((opt, oIdx) => (
-                                                                                    <input
-                                                                                        key={oIdx}
-                                                                                        className={`flex-1 p-2 rounded-lg text-xs font-bold border transition-all ${oIdx + 1 === part.correctIndex ? `bg-${themeColor}-500 text-white border-${themeColor}-600` : 'bg-white border-slate-200 text-slate-500'}`}
-                                                                                        value={opt}
-                                                                                        onChange={(e) => {
-                                                                                            const newLines = [...buildPages[activePageIndex].data.lines];
-                                                                                            newLines[i].parts[pIdx].options[oIdx] = e.target.value;
-                                                                                            updateCurrentPageData({ ...buildPages[activePageIndex].data, lines: newLines });
-                                                                                        }}
-                                                                                    />
-                                                                                ))}
-                                                                            </div>
-
-                                                                            {isSelfStudyMode && (
-                                                                                <div className="space-y-1">
-                                                                                    <label className="text-[10px] font-black text-indigo-400 uppercase">Explanation (정답 확인용 해설)</label>
-                                                                                    <textarea rows={2} className="w-full p-2 bg-white rounded-lg text-xs font-medium border border-indigo-100 outline-none resize-none" value={part.explanation || ""} onChange={(e) => {
-                                                                                        const newLines = [...buildPages[activePageIndex].data.lines];
-                                                                                        newLines[i].parts[pIdx].explanation = e.target.value;
-                                                                                        updateCurrentPageData({ ...buildPages[activePageIndex].data, lines: newLines });
-                                                                                    }} />
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    );
-                                                })}
+                                                {renderTypeEditor(buildPages[activePageIndex].data)}
                                             </div>
                                             <button onClick={onClickZip} className="w-full py-7 bg-slate-900 text-white rounded-[3rem] font-black text-xl shadow-2xl hover:bg-black hover:scale-[1.01] active:scale-95 transition-all flex items-end justify-center gap-6">
                                                 <Download size={32} /> 콘텐츠 다운로드

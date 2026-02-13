@@ -6,7 +6,7 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
     const $headerTitle = doc.querySelector('header img');
     const altText = $headerTitle?.getAttribute('alt') || "";
     const isSelfStudy = altText.includes("스스로 풀기");
-
+    $headerTitle.src = isSelfStudy ? "images/tit-self.png" : "images/tit-together1.png";
     if ($headerTitle) {
         $headerTitle.src = isSelfStudy ? "images/tit-self.png" : "images/tit-together1.png";
     }
@@ -133,10 +133,39 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
                         // Min width reduced from 80 to 60 for small fractions/single digits.
                         const estimatedWidth = Math.max(60, (cleanAnswer.length * 18) + 30);
 
+                        const showLabel = !!part.labelEnabled;   // ✅ Builder에서 이 값을 토글하면 됨
+                        const labelText = part.labelText || `${blankCount}`; // 필요하면 커스텀 라벨도 가능
+
+                        maskWrap.style.position = "relative"; // 라벨 absolute 기준
+
                         maskWrap.innerHTML = `
-                            <button type="button" class="btn-mask h90" style="margin-left:2px; margin-right:2px; width: ${estimatedWidth}px">${blankCount}번 딱지를 누르면 딱지가 벗겨집니다.</button>
-                            <span class="math fs40" style="display:none" translate="no">${sanitizeLaTeX(answer)}</span>
+                        ${showLabel ? `
+                            <span
+                            class="blank-label"
+                            style="
+                                position:absolute;
+                                top:-18px;
+                                left:50%;
+                                transform:translateX(-50%);
+                                font-size:14px;
+                                font-weight:700;
+                                background:#111827;
+                                color:#fff;
+                                padding:2px 8px;
+                                border-radius:999px;
+                                line-height:1;
+                                white-space:nowrap;
+                            "
+                            >${labelText}</span>
+                        ` : ""}
+
+                        <button type="button" class="btn-mask h90" style="margin-left:2px; margin-right:2px; width: ${estimatedWidth}px">
+                            ${blankCount}번 딱지를 누르면 딱지가 벗겨집니다.
+                        </button>
+
+                        <span class="math fs40" style="display:none" translate="no">${sanitizeLaTeX(answer)}</span>
                         `;
+
                         p.appendChild(maskWrap);
                     }
                 });
