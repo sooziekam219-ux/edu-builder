@@ -1049,7 +1049,7 @@ const App = () => {
                 }
 
                 const parsed = JSON.parse(data.candidates[0].content.parts[0].text);
-
+                console.log(parsed)
                 // [Context Detection] Per Page (Image) Isolated Logic
                 // 1. 이미지 내 모든 섹션의 type과 title을 종합하여 탐색
                 // [수정] 1. 판별 기준 엄격화: 영문 'self' 등을 제외하고 명확한 한글 로고 텍스트에만 집중
