@@ -3,11 +3,11 @@ import { injectTogetherSelfBase } from "../handlers/together+self/base";
 import { TYPE_KEYS } from "../../typeKeys";
 
 const createTogetherSelfStrategy = (config) => {
-    const { typeKey, strategy } = config;
+    const { _typeKey, strategy } = config;
     const options = strategy.options || {}; // { hasImage, contentImageUrl, headerUrl, ... }
 
     return {
-        typeKey: TYPE_KEYS.TOGETHER_SELF,
+        // _typeKey: TYPE_KEYS.TOGETHER_SELF,
 
         // [Required] Returns the HTML template path inside the ZIP
         getSkeletonConfig() {
