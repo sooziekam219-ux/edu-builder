@@ -164,6 +164,9 @@ JSON을 생성하기 전, 다음 항목을 먼저 확인하여 내부적으로 �
    - 'lines' 배열을 사용하세요.
    - 각 line은 'label'과 'parts' 배열을 가집니다.
    - 'parts'의 각 항목은 { 'type': 'text', 'content': '...' } 또는 { 'type': 'blank', 'options': [...], 'correctIndex': n, 'explanation': '...' } 입니다.
+   - **중요(together.select 전용):** 'blank'의 'options' 배열에는 반드시 **3개의 선택지**를 포함하세요.
+     - Option 0(정답): 실제 수치/텍스트.
+     - Option 1, 2(오답): 학생들이 가장 많이 하는 실수(부호 오류, 연산 순서 오류, 단위 누락 등)를 반영하여 **현실적이고 매력적인 오답**을 생성하세요.
 
 2. **question / concept 계열 (question.mathinput, concept)**:
    - 'subQuestions' 배열을 사용하세요.
@@ -613,7 +616,95 @@ const App = () => {
     }
 
     function TogetherSelectEditor({ currentData, onChange }) {
-        return <SubQuestionsEditor currentData={currentData} onChange={onChange} />;
+        const lines = Array.isArray(currentData?.lines) ? currentData.lines : [];
+
+        // blank 파트만 한 번에 모으기(순서 유지)
+        const blanks = [];
+        lines.forEach((line, li) => {
+            (line.parts || []).forEach((part, pi) => {
+                if (part?.type === "blank") blanks.push({ li, pi, part });
+            });
+        });
+
+        const patchPart = (li, pi, nextPart) => {
+            const nextLines = lines.map((l, idx) =>
+                idx !== li ? l : { ...l, parts: (l.parts || []).map((p, j) => (j !== pi ? p : nextPart)) }
+            );
+            onChange({ ...currentData, lines: nextLines });
+        };
+
+        const updateOption = (li, pi, part, optIdx, value) => {
+            const nextOptions = [...(part.options || ["", "", ""])];
+            nextOptions[optIdx] = value;
+            patchPart(li, pi, { ...part, options: nextOptions });
+        };
+
+        return (
+            <div className="space-y-8">
+                <div className="p-8 bg-blue-50/60 border border-blue-200 rounded-[2.5rem] space-y-5">
+                    <div>
+                        <div className="text-xs font-black uppercase tracking-widest text-blue-600">Together Select Section</div>
+                        <div className="text-sm font-bold text-slate-600 mt-1">각 빈칸의 정답과 오답 선택지를 설정하세요.</div>
+                    </div>
+
+                    <div className="space-y-4">
+                        {blanks.map(({ li, pi, part }, idx) => (
+                            <div key={`${li}-${pi}`} className="bg-white rounded-2xl border border-blue-100 p-6 space-y-4 shadow-sm">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-lg bg-blue-500 text-white font-black flex items-center justify-center text-xs">
+                                        {idx + 1}
+                                    </div>
+                                    <span className="font-bold text-slate-700">빈칸 #{idx + 1} 선택지 설정</span>
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-emerald-500 uppercase tracking-widest block">Correct Answer (Option 1)</label>
+                                        <input
+                                            className="w-full p-3 rounded-xl border border-emerald-100 bg-emerald-50/30 font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-200"
+                                            value={part.options?.[0] || ""}
+                                            onChange={(e) => updateOption(li, pi, part, 0, e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-rose-400 uppercase tracking-widest block">Wrong Answer 1 (Option 2)</label>
+                                        <input
+                                            className="w-full p-3 rounded-xl border border-rose-100 bg-rose-50/30 font-bold text-sm outline-none focus:ring-2 focus:ring-rose-200"
+                                            value={part.options?.[1] || ""}
+                                            onChange={(e) => updateOption(li, pi, part, 1, e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-rose-400 uppercase tracking-widest block">Wrong Answer 2 (Option 3)</label>
+                                        <input
+                                            className="w-full p-3 rounded-xl border border-rose-100 bg-rose-50/30 font-bold text-sm outline-none focus:ring-2 focus:ring-rose-200"
+                                            value={part.options?.[2] || ""}
+                                            onChange={(e) => updateOption(li, pi, part, 2, e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="pt-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Explanation</label>
+                                    <input
+                                        className="w-full p-3 rounded-xl border border-slate-100 bg-slate-50/50 text-sm font-medium"
+                                        placeholder="이 문항에 대한 해설을 입력하세요 (선택 사항)"
+                                        value={part.explanation || ""}
+                                        onChange={(e) => patchPart(li, pi, { ...part, explanation: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+                        ))}
+
+                        {blanks.length === 0 && (
+                            <div className="p-10 text-center bg-white rounded-2xl border border-dashed border-slate-200">
+                                <div className="text-slate-400 font-bold italic truncate">분석된 빈칸(blank) 데이터가 없습니다. 본문 텍스트에 □ 또는 _ 기호가 포함되어 있는지 확인하세요.</div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
     }
 
     // together.self 전용
@@ -991,13 +1082,15 @@ const App = () => {
                 return (
                     <span
                         key={i}
-                        className={`inline-block align-middle mx-1 rounded-md border-2 transition-all ${isSelfStudy
-                            ? 'w-32 h-10 bg-white border-slate-300 shadow-sm' // 스스로 풀기: 더 길쭉한 하얀 입력창
+                        className={`inline-flex items-center justify-center align-middle mx-1 rounded-md border-2 transition-all ${isSelfStudy
+                            ? 'w-16 h-10 bg-white border-slate-300 shadow-sm' // 스스로 풀기: 하얀 입력창
                             : isTogether
                                 ? 'w-10 h-9 bg-[#00bcf1] border-[#00bcf1]'        // 함께 풀기: 약간 길쭉한 파란 박스
                                 : 'w-10 h-10 bg-[#00bcf1] border-[#00bcf1]'        // 기타: 기본 정사각형
                             }`}
-                    ></span>
+                    >
+                        {isSelfStudy && <img src="https://i.imgur.com/5LhWfL3.png" className="w-5 h-5 object-contain opacity-50" />}
+                    </span>
                 );
             }
             return <span key={i} className="whitespace-pre-wrap">{part}</span>;
@@ -1018,10 +1111,8 @@ const App = () => {
         try {
             const newPages = [];
 
-            // [Refactor] Analyze each image INDIVIDUALLY to ensure per-page context detection
             for (let imgIdx = 0; imgIdx < analysisImages.length; imgIdx++) {
                 const img = analysisImages[imgIdx];
-
                 const base64 = await new Promise(r => {
                     const reader = new FileReader();
                     reader.onload = () => r(reader.result.split(',')[1]);
@@ -1043,168 +1134,247 @@ const App = () => {
                 }
 
                 const data = await res.json();
-                if (!data.candidates || !data.candidates[0]) {
-                    console.warn(`[Page ${imgIdx + 1}] No candidates returned`);
-                    continue;
-                }
+                if (!data.candidates || !data.candidates[0]) continue;
 
-                const parsed = JSON.parse(data.candidates[0].content.parts[0].text);
-                console.log(parsed)
-                // [Context Detection] Per Page (Image) Isolated Logic
-                // 1. 이미지 내 모든 섹션의 type과 title을 종합하여 탐색
-                // [수정] 1. 판별 기준 엄격화: 영문 'self' 등을 제외하고 명확한 한글 로고 텍스트에만 집중
-                const pageSections = parsed.sections || [];
+                let rawJsonText = data.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim();
+
+                // 1. JSON 파싱 보정
+                const sanitizedJson = rawJsonText
+                    .replace(/\\/g, "\\\\")
+                    .replace(/\\\\"/g, '\\"')
+                    .replace(/\\\\n/g, '\\n')
+                    .replace(/\n/g, " ");
+
+                const parsed = JSON.parse(sanitizedJson);
+
+                // 2. 수식 백슬래시 복구 함수
+                const deepRestore = (obj) => {
+                    if (typeof obj === 'string') return obj.replace(/\\\\/g, "\\");
+                    if (Array.isArray(obj)) return obj.map(deepRestore);
+                    if (obj !== null && typeof obj === 'object') {
+                        const newObj = {};
+                        for (let key in obj) { newObj[key] = deepRestore(obj[key]); }
+                        return newObj;
+                    }
+                    return obj;
+                };
+
+                const pageSections = deepRestore(parsed.sections || []);
                 const hasTogether = pageSections.some(s => (s.content.title || "").includes("함께"));
                 const hasSelf = pageSections.some(s => (s.content.title || "").includes("스스로"));
                 const isTogetherSelfSet = hasTogether && hasSelf;
 
-                parsed.sections.forEach((sec, sIdx) => {
+                pageSections.forEach((sec, sIdx) => {
                     const title = sec.content.title || "";
-                    const secType = (sec.type || "").toLowerCase();
-                    const secTitle = (sec.content.title || "").toLowerCase();
-
-                    // 개별 섹션 성격 (추측성 영문 self/together 제외)
+                    const secTitle = title.toLowerCase();
                     const isThisSecSelf = secTitle.includes('스스로');
                     const isThisSecTogether = secTitle.includes('함께');
 
                     let detectedTypeKey = "";
                     let type = "";
 
-                    // [우선순위 재설정]
-                    // 1순위: 한 페이지에 함께+스스로가 모두 있는 복합형인 경우
                     if (isTogetherSelfSet && (isThisSecTogether || isThisSecSelf)) {
                         detectedTypeKey = TYPE_KEYS.TOGETHER_SELF;
                         type = isThisSecSelf ? '스스로 풀기' : '함께 풀기 + 스스로 풀기';
-                    }
-                    // 2순위: 단독 '함께 풀기' (스스로가 없는 경우) -> 무조건 SELECT(딱지형)
-                    else if (isThisSecTogether) {
+                    } else if (isThisSecTogether) {
                         detectedTypeKey = TYPE_KEYS.TOGETHER_SELECT;
                         type = '함께 풀기';
-                    }
-                    // 3순위: 단독 '스스로 풀기'
-                    else if (isThisSecSelf) {
+                    } else if (isThisSecSelf) {
                         detectedTypeKey = TYPE_KEYS.TOGETHER_SELF;
                         type = '스스로 풀기';
-                    }
-                    // 4순위: 그 외 '개념' (타이틀에 '함께/스스로'가 절대 없을 때만)
-                    // else if (secType.includes('개념') || secTitle.includes('개념')) {
-                    //    detectedTypeKey = TYPE_KEYS.CONCEPT;
-                    //    type = '개념';
-                    // }
-                    // 5순위: 기본값
-                    else {
+                    } else {
                         detectedTypeKey = TYPE_KEYS.QUESTION_MATHINPUT;
                         type = '문제';
                     }
 
-
-
-                    let body = sec.content.body || "";
-
-
-                    // [추가] '답:' 혹은 '정답:' 텍스트 강제 필터링 로직
-                    // 텍스트 중간이나 끝에 "답: 1/4" 같은 형태가 들어오면 이를 제거합니다.
-                    body = body.replace(/(답|정답|풀이|해설)\s*[:\.]\s*.*(\n|$)/g, "").trim();
-
+                    let body = (sec.content.body || "").replace(/(답|정답|풀이|해설)\s*[:\.]\s*.*(\n|$)/g, "").trim();
                     let finalAnswers = [...(sec.answers || [])];
 
-                    // 2. 특수 처리 (TOGETHER_SELF일 때)
-                    if (detectedTypeKey === TYPE_KEYS.TOGETHER_SELF) {
-                        if (title.includes('함께') && !body.includes('□') && !body.includes('_') && body.includes('=')) {
-                            const extracted = [];
-                            // 백슬래시(\)를 포함하되 LaTeX 닫는 기호(\))나 다음 기호 직전까지만 추출
-                            body = body.replace(/=\s*([^=\n]+?)(?=\s*\\\)|\s*\n|\s*=|$)/g, (match, p1) => {
-                                extracted.push(p1.trim());
-                                // 수식 블록 내부에 있다면 블록을 안전하게 닫고 빈칸 뒤에 다시 열어줌
-                                return '= \\) □ \\(';
-                            });
-                            // 불필요한 빈 수식 블록 정리
-                            body = body.replace(/\\\( *\\\)/g, '');
-                            finalAnswers = extracted;
-                        }
-                        // 스스로 풀기에서 ___ 는 _ 로 변환 (□가 아닌 _)
-                        else if (title.includes('스스로') && body.includes('___')) {
-                            body = body.replace(/_{2,}/g, '_');
-                        }
+                    // 함께 풀기 유형에서 수식 중간에 라벨을 입히기 위한 필수 로직
+                    if (detectedTypeKey === TYPE_KEYS.TOGETHER_SELF && !body.includes('□') && !body.includes('_')) {
+                        const extracted = [];
+                        // 수식 블록 내의 = 뒤 내용을 찾아서 □로 바꾸고 extracted에 저장
+                        body = body.replace(/=\s*([^=\n]+?)(?=\s*\\\)|\s*\n|\s*=|$)/g, (match, p1) => {
+                            extracted.push(p1.trim());
+                            return '= \\) □ \\('; // 수식을 닫고 □ 넣고 다시 열기
+                        });
+                        body = body.replace(/\\\( *\\\)/g, ''); // 빈 수식 블록 정리
+                        if (extracted.length > 0) finalAnswers = extracted;
                     }
-
-                    // subQuestions 생성
+                    // --- 그룹화 로직 (pendingPassage 적용 및 에러 수정) ---
                     const bodyLines = body.split('\n').filter(l => l.trim());
+                    const updatedSubQs = [];
+                    let currentSq = null;
                     let answerPointer = 0;
+                    let pendingPassage = "";
 
-                    const updatedSubQs = bodyLines.map((l, i) => {
-                        const rawText = l.replace(/^\(\d+\)\s*/, '');
-                        // □ 와 _ 모두 빈칸으로 인식
-                        const blankCount = (rawText.match(/□|_/g) || []).length || 1;
-                        const chunk = finalAnswers.slice(answerPointer, answerPointer + blankCount);
-                        answerPointer += blankCount;
+                    const isTogetherType = detectedTypeKey.includes('SELF') || detectedTypeKey === TYPE_KEYS.TOGETHER_SELECT;
+                    bodyLines.forEach((line, i) => {
+                        const trimmedLine = line.trim();
+                        if (!trimmedLine) return;
 
-                        return {
-                            id: i,
-                            label: `(${i + 1})`,
-                            passage: rawText,
-                            answer: chunk.length > 1 ? chunk : (chunk[0] || ""),
-                            explanation: ""
-                        };
+                        const labelMatch = trimmedLine.match(/^[\(\[①-⑨]?(\d+)[\)\]\.]?\s*/);
+                        const isTitleLine = trimmedLine.includes("함께 풀기") || trimmedLine.includes("스스로 풀기");
+
+                        if (isTitleLine) return;
+
+                        if (labelMatch) {
+                            const rawText = trimmedLine.replace(labelMatch[0], "").trim();
+                            const blankCount = (rawText.match(/□|_/g) || []).length || 1;
+                            const chunk = finalAnswers.slice(answerPointer, answerPointer + blankCount);
+                            answerPointer += blankCount;
+
+                            // 번호 앞에 쌓인 지문이 있다면 합쳐줌
+                            const finalPassage = pendingPassage ? `${pendingPassage}\n${rawText}` : rawText;
+                            pendingPassage = "";
+
+                            currentSq = {
+                                id: Date.now() + i + Math.random(),
+                                label: labelMatch[0].trim(),
+                                passage: finalPassage,
+                                answer: chunk.length > 1 ? chunk : (chunk[0] || ""),
+                                // Together 유형일 때만 라벨 기능을 기본적으로 활성화
+                                labelEnabled: isTogetherType,
+                                explanation: ""
+                            };
+                            updatedSubQs.push(currentSq);
+                        } else if (currentSq) {
+                            currentSq.passage += "\n" + trimmedLine;
+                            const extraBlank = (trimmedLine.match(/□|_/g) || []).length;
+                            if (extraBlank > 0) {
+                                const extraChunk = finalAnswers.slice(answerPointer, answerPointer + extraBlank);
+                                const prev = Array.isArray(currentSq.answer) ? currentSq.answer : (currentSq.answer ? [currentSq.answer] : []);
+                                currentSq.answer = [...prev, ...extraChunk].length > 1 ? [...prev, ...extraChunk] : (prev[0] || extraChunk[0] || "");
+                                answerPointer += extraBlank;
+                            }
+                        } else {
+                            // 번호가 아직 안 나왔으므로 임시 보관 (여기에 rawText가 아닌 trimmedLine 사용)
+                            pendingPassage = pendingPassage ? `${pendingPassage}\n${trimmedLine}` : trimmedLine;
+                        }
                     });
 
-                    // Together 계열을 위한 lines 구조
-                    let lines = null;
-                    if (detectedTypeKey === TYPE_KEYS.TOGETHER_SELF || detectedTypeKey === TYPE_KEYS.TOGETHER_SELECT) {
-                        let lineAnswerPointer = 0;
-                        lines = bodyLines.map((l, idx) => {
-                            const parts = [];
-                            const rawText = l.replace(/^\(\d+\)\s*/, '');
-                            // □ 와 _ 모두 분할 기준으로 사용
-                            const textParts = rawText.split(/□|_/);
-                            textParts.forEach((tp, i) => {
-                                if (tp) parts.push({ type: 'text', content: tp });
-                                if (i < textParts.length - 1) {
-                                    const currentAns = finalAnswers[lineAnswerPointer] || "정답";
-                                    lineAnswerPointer++;
-                                    parts.push({
-                                        type: 'blank',
-                                        options: [currentAns, "오답1", "오답2"],
-                                        correctIndex: 1,
-                                        explanation: ""
-                                    });
-                                }
-                            });
-                            return { label: `(${idx + 1})`, parts };
+
+                    // 만약 루프가 끝났는데 pendingPassage에만 데이터가 있고 문항이 하나도 안 만들어졌을 때 처리
+                    if (updatedSubQs.length === 0 && pendingPassage) {
+                        updatedSubQs.push({
+                            id: Date.now(),
+                            label: "",
+                            passage: pendingPassage,
+                            answer: finalAnswers.length > 1 ? finalAnswers : (finalAnswers[0] || ""),
+                            explanation: ""
                         });
                     }
 
-                    // 4. 페이지 생성
+                    // --- [4] Builder 라벨 인식을 위한 lines 생성 로직 ---
+                    let lines = null;
+                    if (isTogetherType) {
+                        // AI가 응답한 lines에서 blank 파트만 추출하여 options 정보를 확보함
+                        const aiBlanks = [];
+                        if (Array.isArray(sec.lines)) {
+                            sec.lines.forEach(l => {
+                                (l.parts || []).forEach(p => {
+                                    if (p.type === 'blank' && Array.isArray(p.options)) aiBlanks.push(p);
+                                });
+                            });
+                        }
+
+                        let blankSerialIdx = 0;
+                        lines = updatedSubQs.map((sq, sqIdx) => {
+                            const parts = [];
+
+                            // [수정] 수식 밸런싱: 수식(\(...\)) 내부에 빈칸이 있으면 수식을 닫고 빈칸 뒤에 다시 열어줌
+                            let balancedPassage = (sq.passage || "");
+                            balancedPassage = balancedPassage.replace(/\\\((.*?)\\\)/g, (match, content) => {
+                                if (content.includes('□') || content.includes('_')) {
+                                    return `\\(${content.replace(/[□_]/g, '\\) □ \\(')}\\)`;
+                                }
+                                return match;
+                            });
+                            // 빈 수식(\( \)) 정리
+                            balancedPassage = balancedPassage.replace(/\\\( *\\\)/g, "");
+
+                            const textParts = balancedPassage.split(/□|_/);
+                            const sqAnswers = Array.isArray(sq.answer) ? sq.answer : (sq.answer ? [sq.answer] : []);
+
+                            textParts.forEach((tp, i) => {
+                                if (tp) parts.push({ type: 'text', content: tp.trim() });
+                                if (i < textParts.length - 1) {
+                                    // 1) AI가 생성한 options가 있다면 (3개 이상) 가져옴
+                                    let finalOptions = ["", "", ""];
+                                    const aiSource = aiBlanks[blankSerialIdx];
+
+                                    if (aiSource && aiSource.options?.length >= 3) {
+                                        finalOptions = aiSource.options.slice(0, 3);
+                                    } else {
+                                        // 2) 없으면 정답 + 휴리스틱 오답 생성
+                                        const ans = String(sqAnswers[i] || "정답");
+                                        const numMatch = ans.match(/^-?\d*\.?\d+$/); // 숫자 여부 확인
+
+                                        if (numMatch) {
+                                            const n = parseFloat(ans);
+                                            // 헷갈릴만한 숫자 오답: n+1, n-1 혹은 자릿수 변경 등
+                                            const w1 = n > 5 ? String(n - 1) : String(n + 2);
+                                            const w2 = n > 10 ? String(n - 10) : String(n + 10);
+                                            finalOptions = [ans, w1, w2];
+                                        } else {
+                                            finalOptions = [ans, "오답1", "오답2"];
+                                        }
+                                    }
+
+                                    parts.push({
+                                        type: 'blank',
+                                        options: finalOptions,
+                                        correctIndex: 1,
+                                        labelEnabled: true,
+                                        isLabelTarget: true,
+                                        label: sq.label || `(${sqIdx + 1})`,
+                                        explanation: aiSource?.explanation || ""
+                                    });
+                                    blankSerialIdx++;
+                                }
+                            });
+                            return { label: sq.label || `(${sqIdx + 1})`, parts: parts, labelEnabled: true };
+                        });
+                    }
+
+                    let instructionRaw = sec.content.instruction || "";
+                    let finalInstruction = instructionRaw.replace(/\\\\/g, "\\");
+
+                    if (!finalInstruction) {
+                        finalInstruction = (detectedTypeKey === TYPE_KEYS.QUESTION_MATHINPUT) ? "다음을 계산하세요." : "문제를 해결해 보세요.";
+                    }
+
+                    let guideRaw = "";
+                    let guide = (guideRaw.replace(/\\\\/g, "\\")) || "";
+
+                    if (!guide) {
+                        guide = (detectedTypeKey === TYPE_KEYS.QUESTION_MATHINPUT) ? "▷ 빈칸에 들어갈 값을 입력해 보세요." : "▷ 빈칸을 클릭하여 문제를 해결해 보세요.";
+                    }
+
                     if (type === '문제' && updatedSubQs.length >= 3) {
                         for (let i = 0; i < updatedSubQs.length; i += 2) {
                             const chunk = updatedSubQs.slice(i, i + 2);
                             newPages.push({
-                                id: Date.now() + sIdx + i + imgIdx * 100,
-                                type,
-                                typeKey: detectedTypeKey,
+                                id: Date.now() + sIdx + i + imgIdx * 1000,
+                                type, typeKey: detectedTypeKey,
                                 title: i === 0 ? title : `${title} (계속)`,
                                 mainQuestion: i === 0 ? title : `${title} (계속)`,
-                                content: sec.content.instruction || "",
+                                content: finalInstruction, guide: guide,
                                 body: chunk.map(q => q.passage).join('\n'),
                                 answers: chunk.flatMap(q => Array.isArray(q.answer) ? q.answer : [q.answer]),
-                                description: [{ text: generateLogicText(type, sec.subtype, chunk.flatMap(q => Array.isArray(q.answer) ? q.answer : [q.answer])) }],
-                                subQuestions: chunk,
-                                lines: null
+                                description: [{ text: generateLogicText(type, sec.subtype, []) }],
+                                subQuestions: chunk, lines: lines
                             });
                         }
                     } else {
                         newPages.push({
-                            id: Date.now() + sIdx + imgIdx * 100,
-                            type: type,
-                            typeKey: detectedTypeKey,
-                            title: title,
-                            mainQuestion: title,
-                            content: sec.content.instruction || "",
-                            body: body,
-                            answers: finalAnswers,
+                            id: Date.now() + sIdx + imgIdx * 1000,
+                            type, typeKey: detectedTypeKey,
+                            title, mainQuestion: title,
+                            content: finalInstruction, guide: guide,
+                            body: body, answers: finalAnswers,
                             description: [{ text: generateLogicText(type, sec.subtype, finalAnswers) }],
-                            subQuestions: updatedSubQs,
-                            lines: lines
+                            subQuestions: updatedSubQs, lines: lines
                         });
                     }
                 });
@@ -1215,253 +1385,62 @@ const App = () => {
             if (newPages[0]) setMetadata(prev => ({ ...prev, activityName: newPages[0].title }));
 
         } catch (err) {
-            console.error(err);
+            console.error("분석 상세 에러:", err);
             alert("분석 실패: " + err.message);
         } finally {
             setIsProcessing(false);
         }
     };
 
+    // const handleTypeChange = (pageId, newTypeKey) => {
+    //     setPages(prevPages => prevPages.map(page => {
+    //         if (page.id !== pageId) return page;
 
+    //         // 1. 기본 타입 정보 업데이트
+    //         let updatedPage = {
+    //             ...page,
+    //             typeKey: newTypeKey,
+    //             type: newTypeKey === TYPE_KEYS.QUESTION_MATHINPUT ? '문제' : '함께/스스로 풀기'
+    //         };
 
-    // --- Math Rendering Helper (Improved) ---
-    // App.js 내 renderMathText 함수 수정
-    const renderMathText = (slide, textBlock, startX, startY, width, lineHeight = 0.4, page = null) => {
-        if (!textBlock) return startY;
+    //         // 2. Together 계열로 변경 시 lines 구조 생성
+    //         if (newTypeKey.includes('TOGETHER')) {
+    //             updatedPage.lines = generateLinesFromSubQs(page.subQuestions);
+    //             // 기존 subQuestions에도 라벨 활성화 플래그 주입
+    //             updatedPage.subQuestions = page.subQuestions.map(sq => ({ ...sq, labelEnabled: true }));
+    //         } else {
+    //             // 일반 문제로 변경 시 lines 제거
+    //             updatedPage.lines = null;
+    //             updatedPage.subQuestions = page.subQuestions.map(sq => ({ ...sq, labelEnabled: false }));
+    //         }
 
-        const lines = textBlock.split('\n');
-        let currentY = startY;
-        const fontSize = 10;
-
-        lines.forEach(line => {
-            const parts = line.split(/(\\\(.*?\\\)|\\\[.*?\\\]|□)/g);
-            let currentX = startX;
-
-            parts.forEach(part => {
-                if ((part.startsWith('\\(') && part.endsWith('\\)')) || (part.startsWith('\\[') && part.endsWith('\\]'))) {
-                    let latexCode = part.replace(/^\\(\(|\[)/, '').replace(/\\(\)|\])$/, '');
-                    const imageUrl = `https://latex.codecogs.com/png.latex?\\dpi{200}\\bg_white ${encodeURIComponent(latexCode)}`;
-
-                    // 수식 너비 계산: 글자당 가중치를 0.025로 낮추어 옆으로 늘어남 방지
-                    let imgWidth = Math.max(0.2, latexCode.length * 0.04);
-                    const imgHeight = 0.18; // 높이를 살짝 키워 시인성 확보
-
-                    // 비율 제한: 높이 대비 너무 길어지면 캡핑
-                    if (imgWidth > 2.0) imgWidth = 2.0;
-                    if (currentX + imgWidth > startX + width) {
-                        currentX = startX;
-                        currentY += lineHeight;
-                    }
-
-                    slide.addImage({
-                        path: imageUrl,
-                        x: currentX,
-                        y: currentY - 0.04,
-                        w: imgWidth,
-                        h: imgHeight
-                    });
-                    currentX += imgWidth + 0.1;
-                }
-                else if (part === '□') {
-                    // [고도화] 입력형(문제, 스스로 풀기) 여부 판별
-                    const isInputType = page?.type === '문제' ||
-                        page?.type === '스스로 풀기' ||
-                        (page?.type === '함께 풀기 + 스스로 풀기' && page?.title?.includes('스스로'));
-
-                    const boxW = isInputType ? 1.0 : 0.3; // 입력형은 1.0으로 길게, 선택형은 0.3 정사각형
-                    const boxH = 0.3;
-
-                    if (currentX + boxW > startX + width) {
-                        currentX = startX;
-                        currentY += lineHeight;
-                    }
-
-                    // 스타일 통일: 하얀 배경 + 회색 테두리 (입력형) vs 파란 배경 (함께 풀기)
-                    slide.addShape('rect', {
-                        x: currentX,
-                        y: currentY - 0.05,
-                        w: boxW,
-                        h: boxH,
-                        fill: isInputType ? 'FFFFFF' : '00bcf1',
-                        line: { color: isInputType ? '999999' : '00bcf1', width: 0.5 }
-                    });
-
-                    // 입력형인 경우 중앙에 아이콘 추가 (선택 사항)
-                    if (isInputType) {
-                        slide.addImage({
-                            path: 'https://i.imgur.com/5LhWfL3.png',
-                            x: currentX + (boxW - 0.15) / 2,
-                            y: currentY + (boxH - 0.15) / 2 - 0.05,
-                            w: 0.15, h: 0.15
-                        });
-                    }
-                    currentX += boxW + 0.1;
-                }
-                else if (part.trim() !== '' || part === ' ') {
-                    // 맑은 고딕 10pt 기준: 한글/영문 평균 너비 가중치 0.09로 조정
-                    const textWidth = part.length * 0.09;
-
-                    if (currentX + textWidth > startX + width) {
-                        // 줄바꿈 시 남은 공간에 꽉 채우지 않고 다음 줄로 넘김
-                        currentX = startX;
-                        currentY += lineHeight;
-                    }
-
-                    slide.addText(part, {
-                        x: currentX,
-                        y: currentY - 0.1, // 텍스트 베이스라인 정렬 조정
-                        w: textWidth + 0.1, // 우측 여유분 살짝 추가
-                        h: lineHeight,
-                        fontSize: fontSize,
-                        color: '000000',
-                        valign: 'middle',
-                        fontFace: 'Malgun Gothic'
-                    });
-                    currentX += textWidth;
-                }
-            });
-            currentY += lineHeight;
-        });
-        return currentY;
-    };
-
-
-    // const generatePPTX = () => {
-    //     if (!window.PptxGenJS || pages.length === 0) {
-    //         alert("PPT 생성 도구 로딩 중이거나 페이지가 없습니다.");
-    //         return;
-    //     }
-    //     try {
-    //         const pptx = new window.PptxGenJS();
-    //         pptx.layout = 'LAYOUT_16x9';
-    //         const fontOpts = { fontSize: 9, fontFace: 'Malgun Gothic' };
-    //         const labelOpts = { ...fontOpts, fill: 'E5E5E5', bold: true };
-    //         const borderStyle = { color: '000000', width: 0.5 };
-
-    //         pages.forEach((page, index) => {
-    //             const slide = pptx.addSlide();
-
-    //             // 1. Header
-    //             const headerRows = [
-    //                 [{ text: "학교급", options: labelOpts }, { text: metadata.schoolLevel, options: fontOpts }, { text: "학년", options: labelOpts }, { text: metadata.grade, options: fontOpts }, { text: "과목", options: labelOpts }, { text: metadata.subject, options: fontOpts }, { text: "저자", options: labelOpts }, { text: metadata.author, options: fontOpts }, { text: "유형", options: labelOpts }, { text: "HTML5", options: fontOpts }],
-    //                 [{ text: "단원명", options: labelOpts }, { text: metadata.unit, options: fontOpts }, { text: "차시명", options: labelOpts }, { text: metadata.session, options: fontOpts }, { text: "활동 구분", options: labelOpts }, { text: page.type, options: fontOpts }, { text: "ACTIVITY", options: labelOpts }, { text: metadata.activityName, options: fontOpts }, { text: "페이지", options: labelOpts }, { text: (index + 1).toString(), options: { ...fontOpts, align: 'center' } }]
-    //             ];
-    //             slide.addTable(headerRows, { x: 0, y: 0, w: 10.0, h: 0.45, border: { pt: 0.5, color: "999999" }, align: "center", valign: "middle", colW: [0.8, 1.2, 0.8, 1.2, 0.8, 1.2, 0.8, 1.2, 0.8, 1.2] });
-
-    //             // 2. Layout
-    //             const mainY = 0.6; const bottomY = 5.4;
-    //             const leftW = 6.8; const rightW = 2.6; const contentX = 0.2; const rightX = 7.2;
-    //             const narrH = 0.9; const refH = 1.3; const descH = bottomY - refH - 0.1 - mainY; const contentH = bottomY - narrH - 0.1 - mainY;
-
-    //             // [LAYOUT ADJUSTMENT] Concept = Full Width
-    //             const isConcept = page.type === '개념';
-    //             const actualLeftW = isConcept ? 9.6 : leftW;
-
-    //             // [Left] Main Content Box
-    //             slide.addShape(pptx.ShapeType.rect, { x: contentX, y: mainY, w: actualLeftW, h: contentH, fill: 'FFFFFF', line: borderStyle });
-
-    //             let currentY = mainY + 0.2;
-
-    //             // [Image] Top Title Banner
-    //             const titleImg = ASSETS.TITLES[page.type] || ASSETS.TITLES['개념'];
-    //             slide.addImage({ path: titleImg, x: contentX + 0.2, y: currentY, w: 0.8, h: 0.4 });
-    //             currentY += 0.5;
-
-    //             // Content Text
-    //             if (page.content) {
-    //                 slide.addText(page.content, { x: contentX + 0.2, y: currentY, w: actualLeftW - 0.4, h: 0.4, fontSize: 11, bold: true, color: '333333', fontFace: 'Malgun Gothic' });
-    //                 currentY += 0.5;
-    //             }
-
-    //             // *** Body Rendering ***
-    //             const textLineHeight = isConcept ? 0.3 : 0.4;
-    //             const hasSubQuestions = page.subQuestions && page.subQuestions.length > 0;
-
-
-    //             if (hasSubQuestions) {
-    //                 page.subQuestions.forEach((sq, qIdx) => {
-    //                     const qStartX = contentX + 0.2;
-    //                     const textAvailW = actualLeftW - 2.0;
-    //                     const nextY = renderMathText(slide, sq.text, qStartX, currentY, textAvailW, 0.4, page);
-
-    //                     if (page.type !== '개념' && !page.type.includes('발견') && page.type !== '함께 풀기') {
-    //                         const inputW = 1.5; const inputH = 0.4;
-    //                         const inputX = contentX + actualLeftW - inputW - 0.2;
-    //                         slide.addShape(pptx.ShapeType.rect, { x: inputX, y: currentY, w: inputW, h: inputH, fill: 'FFFFFF', line: { color: '999999', width: 1 } });
-
-    //                         // 2. 입력칸 정중앙에 아이콘 이미지 배치 (가로/세로 0.25 크기 기준)
-    //                         const iconSize = 0.25;
-    //                         const centerX = inputX + (inputW - iconSize) / 2;
-    //                         const centerY = currentY + (inputH - iconSize) / 2;
-
-    //                         slide.addImage({
-    //                             path: 'https://i.imgur.com/5LhWfL3.png',
-    //                             x: centerX,
-    //                             y: centerY,
-    //                             w: iconSize,
-    //                             h: iconSize
-    //                         });
-
-    //                         const btnW = 0.4; const btnH = 0.25;
-    //                         const btnX = inputX + inputW - btnW;
-    //                         const btnY = currentY + inputH + 0.1;
-
-    //                         const btnImg = ASSETS.BUTTONS['CHECK'];
-    //                         slide.addImage({ path: btnImg, x: btnX, y: btnY, w: btnW, h: btnH });
-    //                     }
-
-    //                     const blockH = Math.max((nextY - currentY), (0.4 + 0.1 + 0.25));
-    //                     currentY += blockH + 0.3;
-    //                 });
-    //             } else {
-    //                 if (page.body) {
-    //                     renderMathText(slide, page.body, contentX + 0.2, currentY, actualLeftW - 0.4, textLineHeight, page);
-    //                 }
-
-    //                 if (page.type !== '개념' && page.type !== '함께 풀기' && !hasSubQuestions) {
-    //                     const hasAnswer = page.answers && page.answers.length > 0;
-    //                     const btnImg = hasAnswer ? ASSETS.BUTTONS['CHECK'] : ASSETS.BUTTONS['SAVE'];
-    //                     const retryImg = ASSETS.BUTTONS['RETRY'];
-
-    //                     const btnW = 0.4; const btnH = 0.25;
-    //                     const btnX = contentX + actualLeftW - btnW - 0.1;
-    //                     const btnY = mainY + contentH - btnH - 0.1;
-
-    //                     slide.addImage({ path: btnImg, x: btnX, y: btnY, w: btnW, h: btnH });
-    //                     slide.addImage({ path: retryImg, x: btnX - btnW - 0.05, y: btnY, w: btnW, h: btnH });
-    //                 }
-    //             }
-
-    //             // Render Right Panel ALWAYS (even for Concept)
-    //             slide.addShape(pptx.ShapeType.rect, { x: rightX, y: mainY, w: rightW, h: descH, fill: 'FFFFFF', line: borderStyle });
-    //             slide.addText("Description (Logic)", { x: rightX, y: mainY, w: rightW, h: 0.3, ...fontOpts, color: 'FFFFFF', align: 'center', fill: '666666', bold: true });
-
-    //             const descText = page.description?.[0]?.text || "";
-    //             slide.addText(descText, { x: rightX + 0.1, y: mainY + 0.4, w: rightW - 0.2, h: descH - 0.5, ...fontOpts, color: '333333', valign: 'top', fontFace: 'Consolas' });
-
-    //             // [Right] Reference
-    //             const refY = bottomY - refH;
-    //             slide.addShape(pptx.ShapeType.rect, { x: rightX, y: refY, w: rightW, h: refH, fill: 'FFFFFF', line: borderStyle });
-    //             slide.addText("참고", { x: rightX, y: refY, w: rightW, h: 0.3, ...fontOpts, color: 'FFFFFF', align: 'center', fill: '888888', bold: true });
-    //             slide.addText("-", { x: rightX + 0.1, y: refY + 0.4, w: rightW - 0.2, h: refH - 0.5, ...fontOpts, color: '555555', valign: 'top' });
-
-    //             // [Bottom] Narration
-    //             const narrY = bottomY - narrH;
-    //             slide.addShape(pptx.ShapeType.rect, { x: contentX, y: narrY, w: leftW, h: narrH, fill: 'FFFFFF', line: borderStyle });
-    //             slide.addText("Latex 수식", { x: contentX, y: narrY, w: 1.5, h: 0.3, ...fontOpts, color: '333333', bold: true });
-
-    //             const rawContent = page.body || "(No Content)";
-    //             slide.addText(rawContent, {
-    //                 x: contentX + 0.1, y: narrY + 0.3, w: leftW - 0.2, h: narrH - 0.4,
-    //                 ...fontOpts, color: '555555', valign: 'top', fontFace: 'Consolas'
-    //             });
-
-    //             slide.addText(`${metadata.schoolLevel} ${metadata.grade} ${metadata.subject} | 저자: ${metadata.author}`, { x: 0.2, y: 5.45, w: 6.0, h: 0.2, fontSize: 7, color: '9CA3AF' });
-    //         });
-
-    //         pptx.writeFile({ fileName: `Storyboard_${metadata.unit}_${Date.now()}.pptx` });
-    //     } catch (err) { console.error(err); alert(`PPT 생성 오류: ${err.message}`); }
+    //         return updatedPage;
+    //     }));
     // };
+    // const generateLinesFromSubQs = (subQs) => {
+    //     return subQs.map((sq, qIdx) => {
+    //         const parts = [];
+    //         const textParts = sq.passage.split(/□|_/);
+    //         const sqAnswers = Array.isArray(sq.answer) ? sq.answer : [sq.answer];
+
+    //         textParts.forEach((tp, i) => {
+    //             if (tp) parts.push({ type: 'text', content: tp.trim() });
+    //             if (i < textParts.length - 1) {
+    //                 parts.push({
+    //                     type: 'blank',
+    //                     options: [sqAnswers[i] || "정답", "오답1", "오답2"],
+    //                     correctIndex: 1,
+    //                     labelEnabled: true,
+    //                     isLabelTarget: true,
+    //                     label: sq.label || `(${qIdx + 1})`
+    //                 });
+    //             }
+    //         });
+    //         return { label: sq.label || `(${qIdx + 1})`, parts, labelEnabled: true };
+    //     });
+    // };
+
+
 
     const addPage = () => {
         if (buildPages.length >= 4) return;
@@ -1831,6 +1810,8 @@ const App = () => {
 
                                         {/* Metadata Sider */}
                                         <div className="lg:w-60 p-8 flex flex-col gap-6 border-b lg:border-b-0 lg:border-r border-slate-100">
+
+
                                             <div className="flex items-center gap-4 mb-4">
                                                 <span className="w-14 h-14 bg-indigo-600 text-white rounded-[1.5rem] flex items-center justify-center font-black text-xl shadow-lg shadow-indigo-200">
                                                     {pIdx + 1}
@@ -1867,22 +1848,19 @@ const App = () => {
                                             <div className="bg-white p-12 rounded-[2.5rem] border border-slate-200 shadow-sm relative min-h-[500px]">
                                                 {(() => {
                                                     let titleImg = ASSETS.TITLES[page.type] || ASSETS.TITLES['개념'];
-
-                                                    // '함께 풀기 + 스스로 풀기' 타입일 경우, 실제 제목(title)에 따라 이미지 교체
                                                     if (page.type === '함께 풀기 + 스스로 풀기') {
-                                                        if (page.title.includes('함께')) {
-                                                            titleImg = ASSETS.TITLES['함께 풀기'];
-                                                        } else if (page.title.includes('스스로')) {
-                                                            titleImg = ASSETS.TITLES['스스로 풀기'];
-                                                        }
+                                                        if (page.title.includes('함께')) titleImg = ASSETS.TITLES['함께 풀기'];
+                                                        else if (page.title.includes('스스로')) titleImg = ASSETS.TITLES['스스로 풀기'];
                                                     }
-
-                                                    return <img src={titleImg} className="h-10 mb-10 object-contain brightness-95" />;
+                                                    return <img src={titleImg} className="h-10 mb-4 object-contain brightness-95" />;
                                                 })()}
 
-                                                <div className="space-y-12">
-                                                    <h4 className="text-3xl font-bold text-slate-800 leading-snug tracking-tight">{page.content}</h4>
+                                                <div className="space-y-2">
+                                                    <h4 className="text-2xl font-bold text-slate-800 leading-snug tracking-tight">{renderMathToHTML(page.content)}</h4>
+                                                    <h5 className="text-lg text-slate-400 leading-snug tracking-tight mb-6">{page.guideText}</h5>
+
                                                     <div className="space-y-6 mt-8 pl-2 border-l-2 border-slate-100">
+                                                        {/* 1. 질문 리스트 렌더링 */}
                                                         {page.subQuestions.length > 0 ? page.subQuestions.map((sq, i) => (
                                                             <div key={i} className="flex items-start gap-6 p-6 bg-slate-50 rounded-[2rem] hover:bg-indigo-50/30 transition-colors">
                                                                 {sq.label && (
@@ -1891,13 +1869,50 @@ const App = () => {
                                                                     </div>
                                                                 )}
                                                                 <div className="flex-1 space-y-2">
-                                                                    <div className="text-lg font-medium text-slate-700 leading-relaxed">{renderMathToHTML(sq.passage || sq.text, page.typeKey || page.type, page.title)}</div>
+                                                                    <div className="flex items-center justify-between gap-4">
+                                                                        <div className="text-lg font-medium text-slate-700 leading-relaxed flex-1">
+                                                                            {renderMathToHTML(sq.passage || sq.text, page.typeKey || page.type, page.title)}
+                                                                        </div>
+                                                                        {(page.typeKey === 'question.mathinput' || page.type === '문제') && (
+                                                                            <div className="w-16 h-10 border border-slate-300 rounded-lg flex items-center justify-center bg-white shrink-0">
+                                                                                <img src="https://i.imgur.com/5LhWfL3.png" className="w-5 h-5 object-contain opacity-50" />
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
 
+                                                                    {/* [수정] 일반 문제(mathinput) 유형일 때만 각 문항 옆에 확인 버튼 배치 */}
+                                                                    {(page.typeKey === 'question.mathinput' || page.type === '문제') && (
+                                                                        <div className="mt-4 flex justify-end">
+                                                                            <button className="bg-red-500 text-white px-6 py-2 rounded-3xl font-bold shadow-md">확인</button>
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             </div>
                                                         )) : (
-                                                            <div className="text-xl leading-relaxed text-slate-600 font-medium whitespace-pre-wrap">{renderMathToHTML(page.body, page.typeKey || page.type, page.title)}</div>
+                                                            <div className="text-xl leading-relaxed text-slate-600 font-medium whitespace-pre-wrap">
+                                                                {renderMathToHTML(page.body, page.typeKey || page.type, page.title)}
+                                                            </div>
                                                         )}
+                                                    </div>
+
+                                                    {/* [추가] 하단 공통 버튼 영역: 유형에 따라 버튼 모양과 텍스트가 달라짐 */}
+                                                    <div className="mt-10 flex justify-end">
+                                                        {(() => {
+                                                            const isTogetherSelf = page.typeKey === 'together.self' || page.type === '함께 풀기 + 스스로 풀기';
+                                                            const isTogetherPart = isTogetherSelf && page.title.includes('함께');
+                                                            const isSelfPart = isTogetherSelf && page.title.includes('스스로');
+                                                            const isTogetherSelect = page.typeKey === 'together.select' || page.type === '함께 풀기';
+
+                                                            // 1. Together Section (함께 풀기 파트) -> 저장 버튼
+                                                            if (isTogetherPart) {
+                                                                return <button className="bg-red-500 text-white px-6 py-3 rounded-3xl font-extrabold shadow-lg">저장</button>;
+                                                            }
+                                                            // 2. Self Section (스스로 풀기 파트) 또는 함께 풀기 전용 -> 확인 버튼 하나
+                                                            if (isSelfPart || isTogetherSelect) {
+                                                                return <button className="bg-red-500 text-white px-6 py-3 rounded-3xl font-extrabold shadow-lg">확인</button>;
+                                                            }
+                                                            return null;
+                                                        })()}
                                                     </div>
                                                 </div>
                                             </div>
