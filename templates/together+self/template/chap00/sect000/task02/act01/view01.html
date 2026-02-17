@@ -1,0 +1,112 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>함께 풀기 1</title>
+    <link rel="stylesheet" type="text/css" href="../../../../common1/style/common.css">
+    <style>
+    .ml130{margin-left: 130px!important;}
+    .btn-mask-wrap{margin-left: 60px;}
+    .btn-mask.h90 {top: -29px;}
+    .math{font-weight: 300}
+    .btn-mask.h50 {height: 50px;background-size: auto 1000px;top: 4px;line-height: 50px;}
+    .btn-mask.h50::before {width: 4px;left: -2px;}
+    .btn-mask.h50.hide {pointer-events: none;animation: maskOut50 0.8s 1 steps(20) forwards;}
+    .btn-mask.h50.hide::before {opacity: 0;transition: opacity 0.5s 0.3s;}
+    @keyframes maskOut50 {50% {opacity: 1;}100% {background-position: 100% -1000px;opacity: 0;}}
+    </style>
+</head>
+<body>
+    <div class="wrap together">
+        <header>
+            <h1><img src="images/tit-together1.png" alt="함께 풀기 1" class="lang-image"></h1>
+        </header>
+        <main>
+            <h1 class="fs40 mb10">순환소수 <span translate="no">\( 0.\dot{3}\dot{5} \)</span>를 분수로 나타내시오.</h1>
+            <span class="stxt mb60">▷ 빈칸을 눌러 보세요.</span>
+          
+           <p class="fs40 mb50" style="margin-left: 50px;">
+            <span class="math fs40" role="math" aria-label="영 점 삼 점 오 점 을 엑스라고 하면"><span translate="no">\( 0.\dot{3}\dot{5}\)</span>를 \( x \)라고 하면</span>
+           
+            <span class="btn-mask-wrap"style="margin-left: 20px;">
+                <button type="button" class="btn-mask h90" style="width: 375px;">일번 딱지를 누르면 딱지가 벗겨집니다.</button>
+                <span class="math fs40" role="math" aria-label="엑스 는 영 점 삼 오 삼 오 점점점">\( x = 0.353535\cdots \)</span>
+            </span>
+            <span class="ml130">\(······\,①\)</span>
+            </p>
+            
+           
+            <p class="fs40 mb50" style="margin-left: 50px;">
+                <span class="math fs40" role="math" aria-label="일 번의 양변에 백 을 곱하면">①의 양변에 <span translate="no">100</span>을 곱하면</span>
+            </p>
+
+            <span class="btn-mask-wrap">
+                <button type="button" class="btn-mask h90" style="width: 438px;">이번 딱지를 누르면 딱지가 벗겨집니다.</button>
+                <span class="math fs40" role="math" aria-label="백 엑스 는 삼십오 점 삼오 삼오 삼오 점점점">\( 100x = 35.353535\cdots\)</span>
+                <span class="fs40" style="margin-left: 358px;">\(······\,②\)</span>
+            </span>
+           
+            
+        
+
+            <p class="fs40 mt40" style="margin-left: 50px;">
+                <span class="math fs40" role="math" aria-label="이 번 에서 일 번 을 변 끼리 빼면">②에서 ①을 변끼리 빼면</span>
+            </p>
+
+            <span class="btn-mask-wrap mt30">
+                <button type="button" class="btn-mask" style="width: 375px;">삼번 딱지를 누르면 딱지가 벗겨집니다.</button>
+                <span class="math fs40" role="math" aria-label="구십구 엑스 는 삼십오, 엑스 는 삼십오 나누기 구십구">\( 99x = 35,\ x = \dfrac{35}{99} \)</span>
+            </span>
+
+            <div class="image-mask-wrap" style="position: relative; display: inline-block;">
+                <img src="images/susic-img1.png" style="position:absolute; top: -174px; left:558px; width: 450px;" alt="백 엑스는 삼십오와 소수점 아래가 삼오로 반복되는 수이고, 엑스는 영과 소수점 아래가 삼오로 반복되는 수이다. 백 엑스에서 엑스를 빼면 구십구엑스는 삼십오이다.">
+              
+                <!-- 마스크 위치 -->
+                <button type="button"
+                  class="btn-mask h50"
+                  style="position: absolute; top: -134px; left: 659px; width: 307px;">
+                  사번 딱지를 누르면 딱지가 벗겨집니다.
+                </button>
+
+                <button type="button"
+                  class="btn-mask h50"
+                  style="position: absolute; top: -77px; left: 660px; width: 305px;">
+                  오번 딱지를 누르면 딱지가 벗겨집니다.
+                </button>
+
+                <button type="button"
+                  class="btn-mask h50"
+                  style="position: absolute; top: -12px; left: 659px; width: 305px;">
+                  육번 딱지를 누르면 딱지가 벗겨집니다.
+                </button>
+              </div>
+               
+            <div class="btn-wrap">
+                <button type="button" class="btn btn-ok">저장</button>
+                <button type="button" class="btn btn-retry">다시 하기</button>
+            </div>
+        </main>
+        <footer>
+            <nav class="pagination">
+                <button class="btn-prev" disabled>이전 페이지</button>
+                <ol role="none">
+                    <li><a href="view01.html" class="active"><span class="wa-hide">현재위치</span>1</a></li>
+                    <li><a href="view02.html">2</a></li>
+                </ol>
+                <button class="btn-next">다음 페이지</button>
+            </nav>
+        </footer>
+        
+    </div>
+    <script src="../../../../common1/js/jquery-3.7.1.min.js"></script>
+    <script src="../../../../common1/js/jquery-ui.min.js"></script>
+    <script src="../../../../common1/js/jquery.ui.touch-punch.min.js"></script>
+    <script src="js/view_pageinfo.js"></script>
+    <script src="https://aidtcdn.aitextbook.co.kr/content/2025/js/dtext_api_wrapper_opr.js"></script>
+    <script src="../../../../common1/js/common.js"></script>
+    <script src="../../../../common1/js/tex-svg.js"></script>    
+    <script src="js/act.js"></script>
+
+</body>
+</html>

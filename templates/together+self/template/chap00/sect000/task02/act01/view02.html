@@ -1,0 +1,139 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스스로 풀기</title>
+    <link rel="stylesheet" type="text/css" href="../../../../common1/style/common.css">
+
+    <style>
+        .ml145{margin-left: 145px!important;}
+        .h140{height: 140px!important;}
+        .inp-wrap .btn-math.hidden ~ p {padding: 0px 33px!important;}
+        .inp-wrap .btn-math.hidden ~ p.np {padding: 0px 5px!important;font-size: 35px!important;}
+        .inp-wrap .btn-math.hidden ~ p.np2 {padding: 0px 12px!important;}
+        .inp-wrap>div>div.correct {top: -63px;}
+        .down{top: 64px!important;}
+
+        /* 번역 */
+        html[lang="en"] .trans1 { top: 510px!important;}
+    </style>
+</head>
+<body>
+    <div class="wrap together">
+        <header>
+            <h1><img src="images/tit-self.png" alt="스스로 풀기" class="lang-image"></h1>
+        </header>
+        <main>
+            <h1 class="fs40 mb10">순환소수 <span translate="no">\( 4.\dot{1}\dot{2} \)</span>를 분수로 나타내시오.</h1>
+            <span class="stxt mb30">▷ 빈칸에 들어갈 값을 입력해 보세요.</span>
+            <div>
+                <div class="txt1 mb20 ml50 fw300">
+                <span aria-label="사 점 일 이 위에 점을 엑스라고 하면 엑스는 사 점 일 이 일 이 반복된다"><span translate="no">\( 4.\dot{1}\dot{2} \)</span>를 \( x \)라고 하면 \(x=4.121212\cdots \)</span>
+                    <span class="ml50">\(······\,①\)</span>
+                </div>
+
+                <div class="txt1 mb20 ml50 fw300">
+                    <span aria-label="일 번의 양변에 백을 곱하면">①의 양변에 100을 곱하면</span>
+                </div>
+
+                <div class="txt1 mb20 ml50 flex-row ai-c">
+                    <span aria-label="백 엑스는">\( 100x = \)</span>
+                    <div class="inp-wrap m0 mr10">
+                        <div class="w150">
+                            <button type="button" class="btn-math">일번 정답 입력칸</button>
+                            <p id="QuizInput1" style="padding: 0px 33px;"></p>
+                            <div class="correct">412</div>
+                        </div>
+                    </div>
+                    <span aria-label="점 일이일 일이일 점점점">\( .121212\cdots \)</span>
+                    <span class="ml145">\(······\,②\)</span>
+                </div>
+
+                <div class="txt1 mb20 ml50 flex-row ai-c"style="font-weight: 300;">
+                    <span aria-label="이에서 일을 변끼리 빼면">②에서 ①을 변끼리 빼면</span>
+                </div>
+
+                <div class="txt1 mb20 ml50 flex-row ai-c">
+                    <span aria-label="구십구 엑스는">\( 99x =\)</span>
+                    <div class="inp-wrap m0 mr10">
+                        <div class="w150">
+                            <button type="button" class="btn-math">이번 정답 입력칸</button>
+                            <p id="QuizInput2" style="padding: 0px 33px;"></p>
+                            <div class="correct">408</div>
+                        </div>
+                    </div>
+
+                    <div class="inp-wrap trans1"  style="position:absolute; top:500px; left:352px;">
+                        <span aria-label="엑스는"> \( , x = \;\; \)</span>
+                        <div class="w100 h140" style="margin-left: -16px;">
+                            <button type="button" class="btn-math">삼번 정답 입력칸</button>
+                            <p id="QuizInput3" class="np" style="padding: 0px 5px;"></p>
+                            <div class="correct" style="top: -89px;">\( \frac{136}{33} \)</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="image-susic-wrap" style="position: relative; display: inline-block;">
+                    <img src="images/susic-img2.png" style="position:absolute; top: -268px; left:650px; width: 494px;" alt="백 엑스는 정답입력칸과 소수점 아래 일이가 반복되는 수이고, 엑스는 사와 소수점 아래 일이가 반복되는 수이다. 백 엑스에서 엑스를 빼면 구십구 엑스는 정답입력칸이다.">
+
+                    <div class="inp-wrap" style="position:absolute; top: -241px; left:865px;">
+                        <div class="w100">
+                            <button type="button" class="btn-math">사번 정답 입력칸</button>
+                            <p id="QuizInput4" class="np2" style="padding: 0px 12px;"></p>
+                            <div class="correct" style="top: -46px;">412</div>
+                        </div>
+                    </div>
+
+                    <div class="inp-wrap " style="position:absolute; top:-110px; left:867px;">
+                        <div class="w150">
+                            <button type="button" class="btn-math">오번 정답 입력칸</button>
+                            <p id="QuizInput5" style="padding: 0px 33px;"></p>
+                            <div class="correct down">408</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="btn-wrap">
+                <button type="button" class="btn btn-ok">확인</button>
+                <button type="button" class="btn btn-retry">다시 하기</button>
+            </div>
+        </main>
+
+
+        <footer>
+            <nav class="pagination">
+                <button class="btn-prev">이전 페이지</button>
+                <ol role="none">
+                    <li><a href="view01.html">1</a></li>
+                    <li><a href="view02.html" class="active"><span class="wa-hide">현재위치</span>2</a></li>
+                </ol>
+                <button class="btn-next"disabled>다음 페이지</button>
+            </nav>
+        </footer>
+
+        <div class="pop feedback" aria-atomic="true" aria-live="polite" role="alert" aria-labelledby="feedbacktext">
+            <button type="button" class="btn-close">알럿 닫기</button>
+            <div class="character">
+                <p id="feedbacktext"></p>
+                <div class="btn-wrap">
+                    <button type="button" class="btn btn-pop-answer">정답 보기</button>
+                    <button type="button" class="btn btn-pop-retry">재도전</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="../../../../common1/js/jquery-3.7.1.min.js"></script>
+    <script src="../../../../common1/js/jquery-ui.min.js"></script>
+    <script src="../../../../common1/js/jquery.ui.touch-punch.min.js"></script>
+    <script src="js/view_pageinfo.js"></script>
+    <script src="https://aidtcdn.aitextbook.co.kr/content/2025/js/dtext_api_wrapper_opr.js"></script>
+    <script src="../../../../common1/js/common.js"></script>
+    <script src="../../../../common1/js/tex-svg.js"></script>    
+    <script src="js/act2.js"></script>
+
+</body>
+</html>

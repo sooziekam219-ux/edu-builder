@@ -6,16 +6,21 @@ import togetherSelect from "./handlers/together/select";
 import questionMathinput from "./handlers/question/mathinput"; // 이미 쓰고 있으면 그걸로
 import questionTextinput from "./handlers/question/textinput"; // [NEW] Strategy Pattern (Input v1)
 import conceptHandler from "./handlers/concept/index";
+import togetherSelfHandler from "./handlers/together+self/index"; // [NEW]
 
 import createInputStrategy from "./strategies/input_v1";
 import createTogetherStrategy from "./strategies/together_v1";
-import createConceptStrategy from "./strategies/concept_v1"; // [NEW]
+import createConceptStrategy from "./strategies/concept_v1";
+import createTogetherSelfStrategy from "./strategies/together_self_v1"; // [NEW]
+import { loadManifest } from "./manifest"; // [NEW]
+
 
 const ENGINE_BY_TYPEKEY = {
   [togetherSelect.typeKey]: togetherSelect,
   [questionMathinput.typeKey]: questionMathinput,
   [questionTextinput.typeKey]: questionTextinput,
   [conceptHandler.typeKey]: conceptHandler,
+  [togetherSelfHandler.typeKey]: togetherSelfHandler, // [NEW]
 };
 
 /**
@@ -92,6 +97,9 @@ export async function processAndDownloadZip({
       } else if (typeKey === TYPE_KEYS.CONCEPT) {
         console.log("Concept Strategy Selected for Draft"); // Debug
         engine = createConceptStrategy(customConfig);
+      } else if (typeKey === TYPE_KEYS.TOGETHER_SELF) {
+        console.log("Together+Self Strategy Selected");
+        engine = createTogetherSelfStrategy(customConfig);
       } else {
         // Default to input_v1 (input.custom)
         engine = createInputStrategy(customConfig);
@@ -193,6 +201,12 @@ export async function processAndDownloadZip({
       const pageData = validPages[i].data;
       const normalizedData = engine.normalize(pageData);
 
+      // 엔진 주입 전, 뼈대 수정 (Skeleton Modification)
+      let skeletonConfig = {};
+      if (engine.getSkeletonConfig) {
+        skeletonConfig = engine.getSkeletonConfig() || {};
+      }
+
       // --- HTML ---
       const htmlFilename = `view${pNumStr}.html`;
       // Try to find existing file
@@ -201,9 +215,18 @@ export async function processAndDownloadZip({
       // If found, use it. If not, construct path using prefix.
       const targetHtmlPath = foundHtmlPath || (pathPrefix + htmlFilename);
 
-      // 기존 파일이 있으면 쓰고, 없으면 view01에서 복제
+      // [ENHANCED] Determine which source HTML to use
+      let sourceHtmlContent = null;
+      if (skeletonConfig.sourceHtml) {
+        const customSourcePath = Object.keys(loadedZip.files).find(k => k.endsWith(skeletonConfig.sourceHtml));
+        if (customSourcePath) {
+          sourceHtmlContent = await loadedZip.file(customSourcePath)?.async("string");
+        }
+      }
+
+      // 기존 파일이 있으면 쓰고, 없으면 소스 또는 view01에서 복제
       let htmlContent = foundHtmlPath ? await loadedZip.file(foundHtmlPath)?.async("string") : null;
-      if (!htmlContent) htmlContent = baseHtmlContent;
+      if (!htmlContent) htmlContent = sourceHtmlContent || baseHtmlContent;
 
       // update HTML
       const parser = new DOMParser();
@@ -218,176 +241,175 @@ export async function processAndDownloadZip({
         doc.querySelectorAll('.btn-page-prev, .btn-page-next').forEach(el => el.remove());
       }
 
-      // 엔진 주입 전, 뼈대 수정 (Skeleton Modification)
-      if (engine.getSkeletonConfig) {
-        const skeletonConfig = engine.getSkeletonConfig();
+      // --- Content Image Handling (Crop & Save) ---
+      if (skeletonConfig.contentImageUrl) {
+        try {
+          // Initialize Image
+          const img = new Image();
+          img.crossOrigin = "Anonymous";
 
-        // --- Content Image Handling (Crop & Save) ---
-        if (skeletonConfig.contentImageUrl) {
-          try {
-            // Initialize Image
-            const img = new Image();
-            img.crossOrigin = "Anonymous";
+          await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = skeletonConfig.contentImageUrl;
+          });
 
-            await new Promise((resolve, reject) => {
-              img.onload = resolve;
-              img.onerror = reject;
-              img.src = skeletonConfig.contentImageUrl;
-            });
+          let blob;
+          let hasImage = false; // [FIX] Declare variable
+          const hasBounds = skeletonConfig.figureBounds &&
+            Array.isArray(skeletonConfig.figureBounds) &&
+            skeletonConfig.figureBounds.length === 4;
 
-            let blob;
-            let hasImage = false; // [FIX] Declare variable
-            const hasBounds = skeletonConfig.figureBounds &&
-              Array.isArray(skeletonConfig.figureBounds) &&
-              skeletonConfig.figureBounds.length === 4;
+          // 크롭 로직 부분 (zipProcessor 또는 해당 로직 위치)
+          if (hasBounds) {
+            const [ymin, xmin, ymax, xmax] = skeletonConfig.figureBounds;
 
-            // 크롭 로직 부분 (zipProcessor 또는 해당 로직 위치)
-            if (hasBounds) {
-              const [ymin, xmin, ymax, xmax] = skeletonConfig.figureBounds;
+            // 유효한 좌표인지 체크 (전체화면 [0,0,100,100] 이나 [0,0,0,0] 인 경우 제외)
+            // [FIX] Coordinate scale is 1000. Check full image accurately.
+            // Assuming full image if top-left is near 0 and bottom-right is near 1000.
+            const isFullImage = (ymin <= 10) && (xmin <= 10) && (ymax >= 990) && (xmax >= 990);
+            const isEmpty = ymin === 0 && xmin === 0 && ymax === 0 && xmax === 0;
 
-              // 유효한 좌표인지 체크 (전체화면 [0,0,100,100] 이나 [0,0,0,0] 인 경우 제외)
-              // [FIX] Coordinate scale is 1000. Check full image accurately.
-              // Assuming full image if top-left is near 0 and bottom-right is near 1000.
-              const isFullImage = (ymin <= 10) && (xmin <= 10) && (ymax >= 990) && (xmax >= 990);
-              const isEmpty = ymin === 0 && xmin === 0 && ymax === 0 && xmax === 0;
+            if (!isEmpty && !isFullImage) {
+              const w = img.naturalWidth;
+              const h = img.naturalHeight;
 
-              if (!isEmpty && !isFullImage) {
-                const w = img.naturalWidth;
-                const h = img.naturalHeight;
+              // 1000 기준 좌표를 픽셀로 변환
+              const y1 = Math.floor((ymin / 1000) * h);
+              const x1 = Math.floor((xmin / 1000) * w);
+              const y2 = Math.ceil((ymax / 1000) * h);
+              const x2 = Math.ceil((xmax / 1000) * w);
 
-                // 1000 기준 좌표를 픽셀로 변환
-                const y1 = Math.floor((ymin / 1000) * h);
-                const x1 = Math.floor((xmin / 1000) * w);
-                const y2 = Math.ceil((ymax / 1000) * h);
-                const x2 = Math.ceil((xmax / 1000) * w);
+              const cropW = Math.max(1, x2 - x1);
+              const cropH = Math.max(1, y2 - y1);
 
-                const cropW = Math.max(1, x2 - x1);
-                const cropH = Math.max(1, y2 - y1);
+              const canvas = document.createElement('canvas');
+              canvas.width = cropW;
+              canvas.height = cropH;
+              const ctx = canvas.getContext('2d');
 
-                const canvas = document.createElement('canvas');
-                canvas.width = cropW;
-                canvas.height = cropH;
-                const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, x1, y1, cropW, cropH, 0, 0, cropW, cropH);
+              blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
 
-                ctx.drawImage(img, x1, y1, cropW, cropH, 0, 0, cropW, cropH);
-                blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
-
-                hasImage = true; // 실제 크롭 성공 시에만 이미지 활성화
-              }
+              hasImage = true; // 실제 크롭 성공 시에만 이미지 활성화
             }
-
-            // [FIX] If no bounds or full image, fetch the original image blob
-            if (!hasImage && skeletonConfig.contentImageUrl) {
-              try {
-                const response = await fetch(skeletonConfig.contentImageUrl);
-                blob = await response.blob();
-                hasImage = true;
-              } catch (e) {
-                console.error("Failed to fetch original image for zip:", e);
-                // hasImage stays false
-              }
-            }
-
-            // [Path Logic]
-            // User Requirement: Use existing 'images' folder relative to HTML. src="./images/filename"
-            // pathPrefix is directory of HTML.
-            // We construct: pathPrefix + "images/content_XX.png"
-            if (hasImage && blob) {
-              //const imgFilename = `content_${pNumStr}.png`; // Assuming PNG for canvas or blob
-              let ext = 'png';
-              if (blob.type) {
-                ext = blob.type.split('/')[1] || 'png';
-              }
-              console.log("figureBounds:", skeletonConfig.figureBounds);
-              console.log("hasBounds:", hasBounds);
-              const finalFilename = `content_${pNumStr}.${ext}`;
-              const imagesDir = pathPrefix + "images/";
-              const fullPath = `${imagesDir}${finalFilename}`;
-
-              loadedZip.file(fullPath, blob);
-
-              // Update Skeleton Config
-              skeletonConfig.contentImageUrl = `./images/${finalFilename}`;
-              console.log("Updated config to:", skeletonConfig.contentImageUrl);
-
-              // [Alt Text]
-              const altText = skeletonConfig.figureAlt || normalizedData.questions?.[0]?.promptLatex || normalizedData.mainQuestion || "문제 이미지";
-              skeletonConfig.altText = altText;
-            }
-          } catch (err) {
-            console.error("Failed to process content image:", err);
           }
+
+          // [FIX] If no bounds or full image, fetch the original image blob
+          if (!hasImage && skeletonConfig.contentImageUrl) {
+            try {
+              const response = await fetch(skeletonConfig.contentImageUrl);
+              blob = await response.blob();
+              hasImage = true;
+            } catch (e) {
+              console.error("Failed to fetch original image for zip:", e);
+              // hasImage stays false
+            }
+          }
+
+          // [Path Logic]
+          // User Requirement: Use existing 'images' folder relative to HTML. src="./images/filename"
+          // pathPrefix is directory of HTML.
+          // We construct: pathPrefix + "images/content_XX.png"
+          if (hasImage && blob) {
+            //const imgFilename = `content_${pNumStr}.png`; // Assuming PNG for canvas or blob
+            let ext = 'png';
+            if (blob.type) {
+              ext = blob.type.split('/')[1] || 'png';
+            }
+            console.log("figureBounds:", skeletonConfig.figureBounds);
+            console.log("hasBounds:", hasBounds);
+            const finalFilename = `content_${pNumStr}.${ext}`;
+            const imagesDir = pathPrefix + "images/";
+            const fullPath = `${imagesDir}${finalFilename}`;
+
+            loadedZip.file(fullPath, blob);
+
+            // Update Skeleton Config
+            skeletonConfig.contentImageUrl = `./images/${finalFilename}`;
+            console.log("Updated config to:", skeletonConfig.contentImageUrl);
+
+            // [Alt Text]
+            const altText = skeletonConfig.figureAlt || normalizedData.questions?.[0]?.promptLatex || normalizedData.mainQuestion || "문제 이미지";
+            skeletonConfig.altText = altText;
+          }
+        } catch (err) {
+          console.error("Failed to process content image:", err);
         }
+      }
 
-        // --- DOM Modification ---
-        // Header
-        if (skeletonConfig.headerUrl) {
-          const headerImg = doc.querySelector(".tit img") || doc.querySelector("header img");
-          if (headerImg) {
-            headerImg.src = skeletonConfig.headerUrl;
-            headerImg.style.display = "inline-block";
-          }
+      // --- DOM Modification ---
+      // Header
+      if (skeletonConfig.headerUrl) {
+        const headerImg = doc.querySelector(".tit img") || doc.querySelector("header img");
+        if (headerImg) {
+          headerImg.src = skeletonConfig.headerUrl;
+          headerImg.style.display = "inline-block";
         }
+      }
 
-        // Content Image Injection
-        if (skeletonConfig.contentImageUrl) {
-          const img = doc.createElement("img");
-          img.src = skeletonConfig.contentImageUrl;
-          if (skeletonConfig.altText) img.alt = skeletonConfig.altText;
-          img.className = "w-full max-w-3xl mt-4 rounded-xl border border-slate-200 block mx-auto shadow-sm mb-4";
+      // Content Image Injection
+      if (skeletonConfig.contentImageUrl) {
+        const img = doc.createElement("img");
+        img.src = skeletonConfig.contentImageUrl;
+        if (skeletonConfig.altText) img.alt = skeletonConfig.altText;
+        img.className = "w-full max-w-3xl mt-4 rounded-xl border border-slate-200 block mx-auto shadow-sm mb-4";
 
-          // [NEW] Generic Injection via imageTargetSelector
-          if (skeletonConfig.imageTargetSelector) {
-            const target = doc.querySelector(skeletonConfig.imageTargetSelector);
-            if (target && target.parentNode) {
-              const pos = skeletonConfig.imagePosition || "prepend";
-              if (pos === "prepend") {
-                target.parentNode.insertBefore(img, target);
-              } else if (pos === "append") {
-                target.appendChild(img);
-              } else {
-                target.parentNode.insertBefore(img, target);
-              }
-            }
-          }
-          // Legacy Injection (for input_v1)
-          else {
-            const rowTemplate = doc.querySelector(engine.getSkeletonConfig().rowTemplate || ".flex-row.ai-s.jc-sb");
-            if (rowTemplate) {
-              const passage = rowTemplate.querySelector(".a2 p") || rowTemplate.querySelector(".passage");
-              if (passage && passage.parentNode) {
-                passage.parentNode.insertBefore(img, passage.nextSibling);
-              }
+        // [NEW] Generic Injection via imageTargetSelector
+        if (skeletonConfig.imageTargetSelector) {
+          const target = doc.querySelector(skeletonConfig.imageTargetSelector);
+          if (target && target.parentNode) {
+            const pos = skeletonConfig.imagePosition || "prepend";
+            if (pos === "prepend") {
+              target.parentNode.insertBefore(img, target);
+            } else if (pos === "append") {
+              target.appendChild(img);
+            } else {
+              target.parentNode.insertBefore(img, target);
             }
           }
         }
-
-        // Input Style
-        if (skeletonConfig.inputKind === "text") {
-          const rowTemplate = doc.querySelector(".flex-row.ai-s.jc-sb");
+        // Legacy Injection (for input_v1)
+        else {
+          const rowTemplate = doc.querySelector(skeletonConfig.rowTemplate || ".flex-row.ai-s.jc-sb");
           if (rowTemplate) {
-            const inp = rowTemplate.querySelector(".inp-wrap > div");
-            if (inp) {
-              inp.classList.remove("box-type", "input-box", "w200");
-              inp.style.border = "none";
-              inp.style.borderBottom = "2px solid #cbd5e1";
-              inp.style.backgroundColor = "transparent";
-              inp.style.borderRadius = "0";
-              inp.style.width = "100%";
-              inp.style.maxWidth = "200px";
-              inp.style.padding = "4px 8px";
+            const passage = rowTemplate.querySelector(".a2 p") || rowTemplate.querySelector(".passage");
+            if (passage && passage.parentNode) {
+              passage.parentNode.insertBefore(img, passage.nextSibling);
             }
           }
         }
       }
 
+      // Input Style
+      if (skeletonConfig.inputKind === "text") {
+        const rowTemplate = doc.querySelector(".flex-row.ai-s.jc-sb");
+        if (rowTemplate) {
+          const inp = rowTemplate.querySelector(".inp-wrap > div");
+          if (inp) {
+            inp.classList.remove("box-type", "input-box", "w200");
+            inp.style.border = "none";
+            inp.style.borderBottom = "2px solid #cbd5e1";
+            inp.style.backgroundColor = "transparent";
+            inp.style.borderRadius = "0";
+            inp.style.width = "100%";
+            inp.style.maxWidth = "200px";
+            inp.style.padding = "4px 8px";
+          }
+        }
+      }
+
+      // 매니페스트 로드 (ZIP 내부 manifest.json 또는 기본값)
+      const pageManifest = await loadManifest({ zip: loadedZip, meta: templateMeta });
+
       // 엔진 주입
       engine.injectHtmlPage({
         doc,
-        manifest: templateMeta.manifest || {}, // TODO: manifest도 페이지별로 달라야 하나? 일단 공통 사용
+        manifest: pageManifest,
         data: normalizedData,
         pageIndex: i,
       });
+
 
       // Save HTML
       const serializer = new XMLSerializer();
@@ -404,11 +426,13 @@ export async function processAndDownloadZip({
       if (!jsContent && baseJsContent) jsContent = baseJsContent; // 복제
 
       if (jsContent) {
-        const patchedJs = engine.patchActJs({
-          actJsText: jsContent,
-          data: normalizedData,
-          pageIndex: i
-        });
+        const patchedJs = engine.patchActJs
+          ? engine.patchActJs({
+            actJsText: jsContent,
+            data: normalizedData,
+            pageIndex: i
+          })
+          : jsContent;
 
         // 저장 위치: foundJsPath가 있으면 거기, 없으면 act02.js 등으로 루트(혹은 view랑 같은 폴더) 생성
         // 템플릿 구조를 따라가기 위해 act01.js가 있던 폴더를 찾음

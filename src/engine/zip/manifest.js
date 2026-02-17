@@ -4,7 +4,7 @@ const DEFAULT_MANIFEST_BY_TYPEKEY = {
   "together.select": {
     // together/base.js가 쓰는 셀렉터들
     headerImg: "header h1 img.lang-image",
-    guideText: "main > span.stxt",
+    guideText: "main > p.stxt",
 
     // 필요하면 헤더 src/alt도 data.header로 주는 걸 우선으로 두면 됨
     // headerSrc/headerAlt는 base.js가 manifest값 우선이라, 기본값에서는 굳이 안 넣어도 OK
@@ -12,8 +12,8 @@ const DEFAULT_MANIFEST_BY_TYPEKEY = {
 
   "question.mathinput": {
     headerImg: "header h1 img.lang-image",
-    guideText: "main > span.stxt",
-    // question/base.js에서 쓰는 것들(있다면)
+    mainQuestion: ".q > p",
+    guideText: "main > p.stxt",
   },
 };
 
