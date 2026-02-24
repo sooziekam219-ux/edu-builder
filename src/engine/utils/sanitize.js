@@ -14,8 +14,7 @@ export const sanitizeLaTeX = (str) => {
     !sanitized.includes("\\(") &&
     !str.includes("$") // 원본에 $가 있었다면 이미 위에서 처리됨
   ) {
-    // 한글이 섞여 있는지 간단히 체크 (한글이 있으면 수식 부분만 감싸는게 맞지만, 
-    // 일단은 전체 감싸기에 의한 깨짐을 방지하기 위해 한글이 있으면 감싸지 않음)
+    // 한글이 섞여 있으면 전체를 감싸지 않음 (MathJax가 한글을 잘못 처리할 수 있음)
     const hasHangul = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(sanitized);
     if (!hasHangul) {
       sanitized = `\\(${sanitized}\\)`;

@@ -36,9 +36,11 @@ function injectTogetherSelectHtml({ doc, data }) {
 
   // 2. 초기화 (oldzip logic: Wipe & Rebuild)
   container.innerHTML = "";
+  let qIdx = 0;
   let bId = 0;
 
   (data.lines || []).forEach((line) => {
+    qIdx++;
     // 템플릿 선택: 라벨 유무에 따라 적절한 베이스 사용
     const base = line.label ? ml50Base : ml100Base;
     const newLine = base.cloneNode(true);
@@ -46,6 +48,8 @@ function injectTogetherSelectHtml({ doc, data }) {
     newLine.innerHTML = "";
     // 클래스 재설정 (혹시 베이스가 섞였을 경우 대비)
     newLine.className = line.label ? "txt1 mb40 ml50" : "txt1 mb40 ml100 flex-row ai-c";
+    // [중요] 각 문항에 고유 ID 부여 (정오 판별용 클래스/스크립트 대응)
+    newLine.id = `Quiz${qIdx}`;
 
     if (line.label) {
       const lSpan = doc.createElement("span");
@@ -56,7 +60,8 @@ function injectTogetherSelectHtml({ doc, data }) {
     (line.parts || []).forEach((part) => {
       if (part.type === "text") {
         const tSpan = doc.createElement("span");
-        if (!line.label) tSpan.className = "ml10";
+        tSpan.className = line.label ? "math" : "ml10 math";
+        tSpan.setAttribute("translate", "no");
         tSpan.innerHTML = sanitizeLaTeX(part.content);
         newLine.appendChild(tSpan);
       } else if (part.type === "blank") {
@@ -74,11 +79,11 @@ function injectTogetherSelectHtml({ doc, data }) {
 <label for="check-blank${bId}" class="btn-blank">빈칸</label>
 <ul class="select-wrap bottom">
   ${options
-            .map((opt) => `<li><button type="button" class="btn-select">${sanitizeLaTeX(opt)}</button></li>`)
+            .map((opt, oIdx) => `<li><button type="button" class="btn-select math ans${oIdx + 1}" translate="no">${sanitizeLaTeX(opt)}</button></li>`)
             .join("")}
 </ul>
 <span class="write-txt" style="width: ${part.width || 120}px"></span>
-<span class="correct">${finalCorrect}</span>
+<span class="correct math" translate="no">${finalCorrect}</span>
 `;
         newLine.appendChild(bSpan);
       }
@@ -91,12 +96,33 @@ function injectTogetherSelectHtml({ doc, data }) {
 function patchTogetherSelectActJs(actJsText, data) {
   const daps = [];
   (data.lines || []).forEach((l) =>
-    l.parts?.filter((p) => p.type === "blank").forEach((p) => daps.push((p.correctIndex || 1) - 1))
+    l.parts?.filter((p) => p.type === "blank").forEach((p) => {
+      // 템플릿 엔진은 1-based 인덱스를 사용하므로 +1 처리
+      const idx = parseInt(p.correctIndex, 10) || 1;
+      daps.push(idx);
+    })
   );
 
   let out = actJsText;
 
+  // 1. dap_array 패치 (정답 인스턴스)
   out = out.replace(/var\s+dap_array\s*=\s*\[[\s\S]*?\]\s*;/g, `var dap_array = ${JSON.stringify(daps)};`);
+
+  // 2. [추가] 템플릿 규격에 따라 ans_array와 card_array도 패치
+  const zeros = daps.map(() => 0);
+  if (out.includes("var ans_array")) {
+    out = out.replace(/var\s+ans_array\s*=\s*\[[\s\S]*?\]\s*;/g, `var ans_array = ${JSON.stringify(daps)};`);
+  } else {
+    out = out.replace(/var\s+dap_array/, `var ans_array = ${JSON.stringify(daps)};\nvar dap_array`);
+  }
+
+  if (out.includes("var card_array")) {
+    out = out.replace(/var\s+card_array\s*=\s*\[[\s\S]*?\]\s*;/g, `var card_array = ${JSON.stringify(zeros)};`);
+  } else {
+    out = out.replace(/var\s+dap_array/, `var card_array = ${JSON.stringify(zeros)};\nvar dap_array`);
+  }
+
+  out = out.replace(/var\s+q_len\s*=\s*\d+;/g, `var q_len = ${daps.length};`);
   out = out.replace(/var\s+q_len\s*=\s*dap_array\.length\s*;/g, `var q_len = ${daps.length};`);
 
   return out;

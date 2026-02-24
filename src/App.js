@@ -1164,11 +1164,16 @@ const App = () => {
                 const hasSelf = pageSections.some(s => (s.content.title || "").includes("스스로"));
                 const isTogetherSelfSet = hasTogether && hasSelf;
 
+                let lastTogetherType = ""; // [추가] 이전 섹션의 together 유형 추적
+
                 pageSections.forEach((sec, sIdx) => {
                     const title = sec.content.title || "";
                     const secTitle = title.toLowerCase();
                     const isThisSecSelf = secTitle.includes('스스로');
                     const isThisSecTogether = secTitle.includes('함께');
+
+                    // [수정] 분류 상속 로직: 제목이 없거나 숫자로 시작하거나 '계속'이 포함된 경우 이전 together 유형 상속
+                    const isContinuation = !title || /^\d/.test(title) || title.includes("계속");
 
                     let detectedTypeKey = "";
                     let type = "";
@@ -1182,9 +1187,19 @@ const App = () => {
                     } else if (isThisSecSelf) {
                         detectedTypeKey = TYPE_KEYS.TOGETHER_SELF;
                         type = '스스로 풀기';
+                    } else if (isContinuation && lastTogetherType) {
+                        detectedTypeKey = lastTogetherType;
+                        type = lastTogetherType === TYPE_KEYS.TOGETHER_SELECT ? '함께 풀기' : '함께 풀기 + 스스로 풀기';
                     } else {
                         detectedTypeKey = TYPE_KEYS.QUESTION_MATHINPUT;
                         type = '문제';
+                    }
+
+                    // 다음 섹션을 위해 현재 together 유형 저장
+                    if (detectedTypeKey.startsWith("together")) {
+                        lastTogetherType = detectedTypeKey;
+                    } else {
+                        lastTogetherType = "";
                     }
 
                     let body = (sec.content.body || "").replace(/(답|정답|풀이|해설)\s*[:\.]\s*.*(\n|$)/g, "").trim();
@@ -1351,19 +1366,23 @@ const App = () => {
                         guide = (detectedTypeKey === TYPE_KEYS.QUESTION_MATHINPUT) ? "▷ 빈칸에 들어갈 값을 입력해 보세요." : "▷ 빈칸을 클릭하여 문제를 해결해 보세요.";
                     }
 
-                    if (type === '문제' && updatedSubQs.length >= 3) {
+                    // [수정] 분할 조건: 문제 유형 또는 together.select 유형이면서 문항이 3개 이상일 때
+                    if ((type === '문제' || detectedTypeKey === TYPE_KEYS.TOGETHER_SELECT) && updatedSubQs.length >= 3) {
                         for (let i = 0; i < updatedSubQs.length; i += 2) {
                             const chunk = updatedSubQs.slice(i, i + 2);
+                            const chunkLines = lines ? lines.slice(i, i + 2) : null;
+                            const isFirst = i === 0;
+
                             newPages.push({
                                 id: Date.now() + sIdx + i + imgIdx * 1000,
                                 type, typeKey: detectedTypeKey,
-                                title: i === 0 ? title : `${title} (계속)`,
-                                mainQuestion: i === 0 ? title : `${title} (계속)`,
+                                title: isFirst ? title : `${title} (계속)`,
+                                mainQuestion: isFirst ? title : `${title} (계속)`,
                                 content: finalInstruction, guide: guide,
                                 body: chunk.map(q => q.passage).join('\n'),
                                 answers: chunk.flatMap(q => Array.isArray(q.answer) ? q.answer : [q.answer]),
-                                description: [{ text: generateLogicText(type, sec.subtype, []) }],
-                                subQuestions: chunk, lines: lines
+                                description: [{ text: generateLogicText(type, sec.subtype, chunk.flatMap(q => Array.isArray(q.answer) ? q.answer : [q.answer])) }],
+                                subQuestions: chunk, lines: chunkLines
                             });
                         }
                     } else {
