@@ -632,8 +632,6 @@ const App = () => {
         });
     };
 
-    console.log("customconfig", customConfig)
-
     const builderImageInputRef = useRef(null);
     const templateZipInputRef = useRef(null);
     const analysisScrollRef = useRef(null); // [NEW] Ref for analysis image grid
