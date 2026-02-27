@@ -133,6 +133,7 @@ const KIM_HWA_KYUNG_PROMPT = `
     "sections": [
       {
         "type": "함께 풀기 + 스스로 풀기",
+        "typeKey": "together.self",
         "subtype": "복합형",
         "content": { "title": "함께 풀기", "instruction": "...", "body": "전체 텍스트..." },
         "answers": ["정답"],
@@ -198,6 +199,35 @@ JSON 구조 예시:
 
 // --- Helpers ---
 
+// [NEW] Text to Lines/Parts Parser
+const parseTextToLines = (text, answers = []) => {
+    if (!text) return [];
+    const lines = text.split('\n');
+    let globalBlankIdx = 0;
+
+    return lines.map(lineText => {
+        // Find □ or _ as blank markers
+        const rawParts = lineText.split(/(□|_)/g);
+        const parts = rawParts.map(p => {
+            if (!p) return null;
+            if (p === '□' || p === '_') {
+                const ans = answers[globalBlankIdx] || "";
+                globalBlankIdx++;
+                return {
+                    type: 'blank',
+                    options: [ans],
+                    correctIndex: 1,
+                    labelEnabled: false, // [FIX] Show only in preview, hide in ZIP
+                    labelText: ""
+                };
+            }
+            return { type: 'text', content: p };
+        }).filter(Boolean);
+
+        return { label: "", parts };
+    });
+};
+
 const generateLogicText = (type, subtype, answers) => {
     const hasAnswer = answers && answers.length > 0;
     const answerSection = hasAnswer ? `[정답 설정]\n- 정답: ${answers.join(', ')}\n\n` : '';
@@ -235,10 +265,13 @@ const buildDraftInputConfig = ({
     typeKey, // "concept", "together.select", "question.mathinput" etc.
     baseTemplateTypeKey, // zip 베이스. 예: "question.mathinput"
     inputKind = "math", hasImage = false, headerUrl = "", contentImageUrl = "",
-    figureBounds = null, figureAlt = "",
+    figure_bounds = null, figure_alt = "",
     isTogether = false, // [NEW] Together Mode Flag
     isSelfStudy = false // [NEW] Self Study Flag
 }) => {
+    // [NEW] JSON 확인용 로그
+    console.log("[buildDraftInputConfig] Input:", { typeKey, isTogether, isSelfStudy });
+
     // 1. Concept Type
     if (typeKey === TYPE_KEYS.CONCEPT) {
         return {
@@ -247,7 +280,7 @@ const buildDraftInputConfig = ({
             manifest: {},
             strategy: {
                 name: 'concept_v1',
-                options: { hasImage, contentImageUrl, figureBounds, figureAlt }
+                options: { hasImage, contentImageUrl, figure_bounds, figure_alt }
             }
         };
     }
@@ -266,8 +299,8 @@ const buildDraftInputConfig = ({
                     hasImage,
                     headerUrl,
                     contentImageUrl,
-                    figureBounds,
-                    figureAlt,
+                    figure_bounds,
+                    figure_alt,
                     isSelfStudy // [NEW] Pass flag
                 }
             }
@@ -275,8 +308,10 @@ const buildDraftInputConfig = ({
     }
 
     // 3. Together Type or Standard Input
+    const finalTypeKey = typeKey || (isTogether ? "together.custom" : "input.custom");
+
     return {
-        typeKey: isTogether ? "together.custom" : "input.custom", // Dynamic Type Key
+        typeKey: finalTypeKey,
         baseTemplateTypeKey: isTogether ? TYPE_KEYS.TOGETHER_SELECT : TYPE_KEYS.QUESTION_MATHINPUT,
         manifest: {
             rowTemplate: isTogether ? ".txt1" : ".flex-row.ai-s.jc-sb",
@@ -288,8 +323,8 @@ const buildDraftInputConfig = ({
                 hasImage,
                 headerUrl,
                 contentImageUrl,
-                figureBounds,
-                figureAlt
+                figure_bounds,
+                figure_alt
             }
         }
     };
@@ -341,6 +376,7 @@ const App = () => {
     const [hasImage, setHasImage] = useState(false);
 
     const [removePagination, setRemovePagination] = useState(true);
+    const [zoomedImage, setZoomedImage] = useState(null);
 
     // Derived Logic
     const activeData = buildPages[activePageIndex]?.data;
@@ -604,9 +640,9 @@ const App = () => {
                 inputKind,
                 hasImage: hasImage || aiHasImage, // Use either UI toggle or AI detection
                 headerUrl: hUrl,
-                contentImageUrl: cImg,
-                figureBounds: currentData?.figure_bounds,
-                figureAlt: currentData?.figure_alt,
+                contentImageUrl: cImg, // Page original image
+                figure_bounds: currentData?.figure_bounds,
+                figure_alt: currentData?.figure_alt,
                 isTogether,
                 isSelfStudy // [NEW]
             });
@@ -647,6 +683,30 @@ const App = () => {
             analysisScrollRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
     }, [analysisImages, activeTab]);
+
+    const ZoomModal = ({ imageUrl, onClose }) => {
+        if (!imageUrl) return null;
+        return (
+            <div
+                className="fixed inset-0 bg-black/90 z-[300] flex items-center justify-center p-4 animate-in fade-in cursor-zoom-out"
+                onClick={onClose}
+            >
+                <div className="relative max-w-5xl w-full h-full flex items-center justify-center">
+                    <img
+                        src={imageUrl}
+                        className="max-w-full max-h-full object-contain shadow-2xl rounded-lg animate-in zoom-in-95 duration-300"
+                        alt="Zoomed Source"
+                    />
+                    <button
+                        onClick={onClose}
+                        className="absolute top-4 right-4 w-12 h-12 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all"
+                    >
+                        <X size={24} />
+                    </button>
+                </div>
+            </div>
+        );
+    };
 
     const StatusModal = ({ status, onClose }) => {
         if (!status) return null;
@@ -706,38 +766,59 @@ const App = () => {
         }
     }, [selectedTypeKey, filteredTemplates]); // selectedTemplateId를 의존성에서 제거 (무한루프 방지)
 
-    const renderMathToHTML = (text, typeKey, pageTitle) => {
+    const renderMathToHTML = (text, typeKey, pageTitle, answers = []) => {
         if (!text) return null;
 
         // [NEW] 수식 기호 보호 및 $ 변환 처리
         const sanitizedText = sanitizeLaTeX(text);
 
         // 스스로 풀기 여부 확인
-        const isSelfStudy = typeKey === "together.self" && pageTitle.includes('스스로');
-        const isTogether = typeKey === "together.self" && pageTitle.includes('함께');
+        const isSelfStudy = typeKey === TYPE_KEYS.TOGETHER_SELF && (pageTitle?.includes('스스로') || false);
+        // Together.select 혹은 Together.Self (스스로 가 아니면 기본 함께로 간주)
+        const isTogether = typeKey === TYPE_KEYS.TOGETHER_SELECT || (typeKey === TYPE_KEYS.TOGETHER_SELF && !isSelfStudy);
 
         const parts = sanitizedText.split(/(\\\([\s\S]*?\\\)|□)/g);
+        let blankIdx = 0;
+
         return parts.map((part, i) => {
             if (!part) return null;
 
             if (part.startsWith('\\(')) {
                 const latex = part.replace(/^\\\(|\\\)$/g, '');
-                // 수식 내부에 _ 가 있다면 (보통 아래첨자용), CodeCogs 서버가 에러낼 수 있으므로 
-                // 빈칸 성격의 _ 인지 확인하여 처리 (여기서는 수식 블록 내부면 렌더링 시도)
+                // [REVERT] 안정적인 PNG 방식으로 복구 (DPI를 높여 선명도 유지)
                 const url = `https://latex.codecogs.com/png.latex?\\dpi{150}\\bg_white ${encodeURIComponent(latex)}`;
                 return <img key={i} src={url} alt="math" className="inline-block align-middle mx-1 h-5" />;
             } else if (part === '□') {
+                blankIdx++;
+                const currentBlankIdx = blankIdx;
+                const answer = answers[currentBlankIdx - 1] || "";
+
                 return (
-                    <span
-                        key={i}
-                        className={`inline-flex items-center justify-center align-middle mx-1 rounded-md border-2 transition-all ${isSelfStudy
-                            ? 'w-16 h-10 bg-white border-slate-300 shadow-sm' // 스스로 풀기: 하얀 입력창
-                            : isTogether
-                                ? 'w-10 h-9 bg-[#00bcf1] border-[#00bcf1]'        // 함께 풀기: 약간 길쭉한 파란 박스
-                                : 'w-10 h-10 bg-[#00bcf1] border-[#00bcf1]'        // 기타: 기본 정사각형
-                            }`}
-                    >
-                        {isSelfStudy && <img src="https://i.imgur.com/5LhWfL3.png" className="w-5 h-5 object-contain opacity-50" />}
+                    <span key={i} className="inline-flex items-center align-middle mx-1 relative">
+                        <span
+                            className={`inline-flex items-center justify-center rounded-md border-2 transition-all relative ${isSelfStudy
+                                ? 'w-16 h-10 bg-white border-slate-300 shadow-sm'
+                                : isTogether
+                                    ? 'w-10 h-10 bg-[#00bcf1] border-[#00bcf1] shadow-[0_4px_0_0_#0097c3]' // 찰흙/딱지 느낌의 그림자 추가
+                                    : 'w-10 h-10 bg-[#00bcf1] border-[#00bcf1]'
+                                }`}
+                        >
+                            {/* Label OVERLAID on top-left of the box */}
+                            {isTogether && (
+                                <span className="absolute -top-2.5 -left-2.5 w-6 h-6 bg-slate-900 text-white rounded-full flex items-center justify-center text-[10px] font-black border-2 border-white shadow-sm z-10">
+                                    {currentBlankIdx}
+                                </span>
+                            )}
+
+                            {isSelfStudy && <img src="https://i.imgur.com/5LhWfL3.png" className="w-5 h-5 object-contain opacity-50" />}
+
+                            {/* Answer Preview */}
+                            {answer && (
+                                <span className={`absolute inset-0 flex items-center justify-center font-bold text-[11px] pointer-events-none ${isSelfStudy ? 'text-blue-600' : 'text-white'}`}>
+                                    {answer.length > 5 ? answer.substring(0, 4) + '..' : answer}
+                                </span>
+                            )}
+                        </span>
                     </span>
                 );
             }
@@ -866,6 +947,7 @@ const App = () => {
                         body = body.replace(/\\\( *\\\)/g, ''); // 빈 수식 블록 정리
                         if (extracted.length > 0) finalAnswers = extracted;
                     }
+                    body = body.trim() || "";
                     // --- 그룹화 로직 (pendingPassage 적용 및 에러 수정) ---
                     const bodyLines = body.split('\n').filter(l => l.trim());
                     const updatedSubQs = [];
@@ -990,15 +1072,15 @@ const App = () => {
                                         type: 'blank',
                                         options: finalOptions,
                                         correctIndex: 1,
-                                        labelEnabled: true,
+                                        labelEnabled: false, // [FIX] Hide in ZIP engine
                                         isLabelTarget: true,
-                                        label: sq.label || `(${sqIdx + 1})`,
+                                        label: "",
                                         explanation: aiSource?.explanation || ""
                                     });
                                     blankSerialIdx++;
                                 }
                             });
-                            return { label: sq.label || `(${sqIdx + 1})`, parts: parts, labelEnabled: true };
+                            return { label: sq.label || `(${sqIdx + 1})`, parts: parts, labelEnabled: false };
                         });
                     }
 
@@ -1126,6 +1208,7 @@ const App = () => {
 
     const removePage = (index) => {
         if (buildPages.length <= 1) return;
+        if (!window.confirm("뷰를 삭제할까요?")) return;
         const newPages = buildPages.filter((_, i) => i !== index).map((p, i) => ({ ...p, id: i + 1 }));
         setBuildPages(newPages);
         setActivePageIndex(Math.max(0, index - 1));
@@ -1272,6 +1355,7 @@ const App = () => {
     return (
         <div className="flex h-screen bg-[#F8FAFC] text-slate-800 overflow-hidden selection:bg-indigo-500 selection:text-white">
             <StatusModal status={statusMessage} onClose={() => setStatusMessage(null)} />
+            <ZoomModal imageUrl={zoomedImage} onClose={() => setZoomedImage(null)} />
 
             {/* [Modern Sidebar] Glassmorphism & Clean Typography */}
             <aside className="w-72 bg-white/80 backdrop-blur-2xl border-r border-slate-100/50 p-8 flex flex-col gap-10 z-20 shadow-[4px_0_24px_-12px_rgba(0,0,0,0.05)]">
@@ -1322,7 +1406,7 @@ const App = () => {
                         <div className="p-10 bg-white rounded-[3rem] shadow-2xl flex flex-col items-center gap-6 border border-slate-100 animate-in zoom-in duration-300">
                             <Loader2 className="animate-spin text-indigo-600" size={64} />
                             <p className="font-black text-slate-700 text-lg">
-                                {uploadProgress > 0 ? `업로드 중... ${uploadProgress}%` : "AI 엔진 가동 중..."}
+                                {uploadProgress > 0 ? `업로드 중... ${uploadProgress}%` : (activeTab === 'analysis' ? "AI 엔진 가동 중..." : "콘텐츠 패키징 중...")}
                             </p>
                             {uploadProgress > 0 && (
                                 <div className="w-64 h-4 bg-slate-100 rounded-full overflow-hidden">
@@ -1346,16 +1430,16 @@ const App = () => {
                                 {activeTab === 'library' && "템플릿 라이브러리"}
                             </h2>
                             <p className="text-slate-500 font-small mt-3 text-lg">
-                                {activeTab === 'analysis' && "교과서 이미지를 업로드하고 스토리보드를 생성하세요."}
+                                {activeTab === 'analysis' && "교과서 이미지를 업로드하면 AI가 스토리보드 초안을 생성합니다."}
                                 {activeTab === 'storyboard' && "생성된 스토리보드 화면을 확인하고 콘텐츠 생성을 진행하세요."}
-                                {activeTab === 'builder' && "한 act파일을 구성한 후 세부 내용을 수정하여 최종 결과물을 다운받으세요."}
+                                {activeTab === 'builder' && "화면을 보며 직접 내용을 수정해 보세요. 내용 작성이 완료된 후 [콘텐츠 다운로드] 버튼을 눌러 act 파일을 다운받을 수 있습니다."}
                                 {activeTab === 'library' && "템플릿 업로드 페이지입니다."}
                             </p>
                         </div>
                         <div className="flex gap-4">
                             {activeTab === 'analysis' && (
                                 <button onClick={runAnalysis} className="px-10 py-4 bg-gray-900 text-white rounded-full font-bold text-lg shadow-xl shadow-gray-200 hover:scale-[1.02] hover:shadow-2xl active:scale-95 transition-all flex items-center gap-3">
-                                    <MonitorPlay size={20} /> 분석 시작
+                                    <MonitorPlay size={20} /> 스토리보드 생성
                                 </button>
                             )}
                             {/* {activeTab === 'storyboard' && (
@@ -1532,7 +1616,7 @@ const App = () => {
 
                                                 <div className="space-y-2">
                                                     <h4 className="text-2xl font-bold text-slate-800 leading-snug tracking-tight">{renderMathToHTML(page.content)}</h4>
-                                                    <h5 className="text-lg text-slate-400 leading-snug tracking-tight mb-6">{page.guideText}</h5>
+                                                    <h5 className="text-lg text-slate-400 leading-snug tracking-tight mb-6">{page.guide}</h5>
 
                                                     <div className="space-y-6 mt-8 pl-2 border-l-2 border-slate-100">
                                                         {/* 1. 질문 리스트 렌더링 */}
@@ -1614,72 +1698,70 @@ const App = () => {
                                                     setStatusMessage({ title: "생성 중", message: "콘텐츠 빌더로 복사 및 데이터 추출 중...", type: 'loading' });
 
                                                     try {
-                                                        // 1. Prepare Text Prompt from Storyboard Page
-                                                        const sbContent = JSON.stringify({
-                                                            type: page.type,
-                                                            content: page.content,
-                                                            body: page.body,
-                                                            answers: page.answers, // [추가됨]
-                                                            subQuestions: page.subQuestions,
-                                                            description: page.description[0].text
-                                                        }, null, 2);
+                                                        // [MODIFIED] Robust mapping using buildDraftInputConfig helper
+                                                        const detectedTypeKey = page.typeKey || (
+                                                            page.type.includes("함께 풀기 + 스스로 풀기") ? TYPE_KEYS.TOGETHER_SELF :
+                                                                page.type.includes("함께 풀기") ? TYPE_KEYS.TOGETHER_SELECT :
+                                                                    page.type.includes("개념") ? TYPE_KEYS.CONCEPT :
+                                                                        TYPE_KEYS.QUESTION_MATHINPUT
+                                                        );
 
-                                                        const systemPrompt = UNIVERSAL_BUILDER_PROMPT;
-                                                        const isTogetherSelf = page.typeKey === TYPE_KEYS.TOGETHER_SELF || page.type === '함께 풀기 + 스스로 풀기';
-                                                        let titleImg = ASSETS.TITLES[page.type] || ASSETS.TITLES['개념'];
+                                                        const isSelfStudy = (page.type || "").includes("스스로") || (page.title || "").includes("스스로");
 
-                                                        // [Issue 1] TOGETHER_SELF인 경우 타이틀에 따라 이미지 분기
-                                                        if (isTogetherSelf) {
-                                                            if (page.title.includes('함께')) {
-                                                                titleImg = ASSETS.TITLES['함께 풀기'];
-                                                            } else if (page.title.includes('스스로')) {
-                                                                titleImg = ASSETS.TITLES['스스로 풀기'];
-                                                            }
-                                                        }
-
-                                                        // 2. Call Gemini
-                                                        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-                                                            method: 'POST',
-                                                            headers: { 'Content-Type': 'application/json' },
-                                                            body: JSON.stringify({
-                                                                contents: [{
-                                                                    parts: [
-                                                                        { text: systemPrompt },
-                                                                        { text: `Extract build data from this JSON representation of a textbook page:\n\n${sbContent}` }
-                                                                    ]
-                                                                }],
-                                                                generationConfig: { responseMimeType: "application/json" }
-                                                            })
+                                                        // Start with a clean draft config template
+                                                        const draftConfig = buildDraftInputConfig({
+                                                            typeKey: detectedTypeKey,
+                                                            baseTemplateTypeKey: detectedTypeKey,
+                                                            hasImage: !!(page.figure_bounds && page.figure_bounds.some(v => v !== 0)),
+                                                            contentImageUrl: page.contentImageUrl,
+                                                            figure_bounds: page.figure_bounds,
+                                                            figure_alt: page.figure_alt,
+                                                            isTogether: detectedTypeKey.startsWith("together"),
+                                                            isSelfStudy: isSelfStudy
                                                         });
 
-                                                        if (!res.ok) throw new Error("API Error");
-                                                        const data = await res.json();
-                                                        const text = data.candidates[0].content.parts[0].text;
-                                                        const extracted = JSON.parse(text.replace(/```json/g, '').replace(/```/g, '').trim());
-
-                                                        const isSelfSection =
-                                                            (page.type || "").includes("스스로");
-
-
                                                         const finalExtracted = {
-                                                            ...extracted,
-                                                            typeKey: page.typeKey || TYPE_KEYS.TOGETHER_SELF, // 스토리보드 페이지가 가진 타입을 유지
-                                                            strategy: {
-                                                                ...(extracted.strategy || {}),
-                                                                options: {
-                                                                    ...(extracted.strategy?.options || {}),
-                                                                    isSelfStudy: isSelfSection,
+                                                            ...draftConfig,
+                                                            type: page.type,
+                                                            title: page.title || page.mainQuestion,
+                                                            mainQuestion: page.content || page.mainQuestion,
+                                                            guideText: page.guide,
+                                                            subQuestions: page.subQuestions || [],
+                                                            lines: page.lines || [],
+                                                            answers: page.answers || [] // [FIX] Ensure answers are mapped for preview
+                                                        };
+
+                                                        // For together types, parse body into lines/parts automatically
+                                                        if (detectedTypeKey.startsWith("together")) {
+                                                            if (finalExtracted.lines.length === 0) {
+                                                                // [FIX] Try primary source (body/content)
+                                                                let sourceText = page.body || page.content || "";
+
+                                                                // [NEW] Fallback: If body is empty, harvest from subQuestions (sometimes AI puts it there)
+                                                                if (!sourceText && page.subQuestions && page.subQuestions.length > 0) {
+                                                                    console.log("[Build] Harvesting source text from subQuestions...");
+                                                                    sourceText = page.subQuestions
+                                                                        .map(sq => String(sq.passage || sq.text || "").trim())
+                                                                        .filter(Boolean)
+                                                                        .join("\n");
                                                                 }
 
+                                                                finalExtracted.lines = parseTextToLines(sourceText, page.answers || []);
+                                                            } else {
+                                                                // If lines exist, ensure they have parts (fix for manual inputs)
+                                                                finalExtracted.lines = finalExtracted.lines.map(line => {
+                                                                    if (line.parts && line.parts.length > 0) return line;
+                                                                    return parseTextToLines(line.text || "", page.answers || [])[0] || line;
+                                                                });
                                                             }
-                                                        };
+                                                        }
                                                         // 3. Add to Build Pages
                                                         const newBuildPages = [...buildPages];
                                                         if (!newBuildPages[activePageIndex].data && !newBuildPages[activePageIndex].image) {
-                                                            newBuildPages[activePageIndex] = { ...newBuildPages[activePageIndex], data: finalExtracted };
+                                                            newBuildPages[activePageIndex] = { ...newBuildPages[activePageIndex], data: finalExtracted, image: page.contentImageUrl };
                                                         } else {
                                                             if (newBuildPages.length < 4) {
-                                                                newBuildPages.push({ id: newBuildPages.length + 1, image: null, data: finalExtracted });
+                                                                newBuildPages.push({ id: newBuildPages.length + 1, image: page.contentImageUrl, data: finalExtracted });
                                                                 setActivePageIndex(newBuildPages.length - 1);
                                                             } else {
                                                                 alert("최대 4페이지까지만 생성 가능합니다.");
@@ -1691,7 +1773,11 @@ const App = () => {
                                                         setBuildPages(newBuildPages);
                                                         setActiveTab('builder');
                                                         setStatusMessage(null); // Close loading modal
-                                                        setSelectedTypeKey(page.typeKey || TYPE_KEYS.TOGETHER_SELF);
+
+                                                        // [LOG] 최종 생성된 JSON 데이터 확인용
+                                                        console.log("[Build] Final Extracted JSON:", JSON.stringify(finalExtracted, null, 2));
+
+                                                        setSelectedTypeKey(detectedTypeKey);
                                                         // Set Type Key
                                                         // Set Type Key
                                                         // [Updated] Use Pre-detected typeKey if available (Context Aware)
@@ -1735,38 +1821,157 @@ const App = () => {
 
                     {activeTab === 'builder' && (
 
-                        <div className="grid grid-cols-3 gap-12 animate-in fade-in duration-500">
-                            <div className="col-span-1 space-y-8">
-                                <div className="bg-white p-10 rounded-[3.5rem] border border-slate-200 shadow-sm">
+                        <div className="grid grid-cols-5 gap-6 animate-in fade-in duration-700">
+                            <div className="col-span-2 space-y-4 sticky top-0 self-start">
 
-                                    <label className="text-xs font-black text-slate-400 uppercase mb-5 block ml-2 tracking-widest">UPLOAD SB IMAGES</label>
 
-                                    <div className="flex gap-2 mb-4 flex-wrap">
-                                        {buildPages.map((p, idx) => (
-                                            <button
-                                                key={p.id}
-                                                onClick={() => setActivePageIndex(idx)}
-                                                className={`px-4 py-2 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${activePageIndex === idx ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
-                                            >
-                                                Page {p.id}
-                                                {buildPages.length > 1 && (
-                                                    <span onClick={(e) => { e.stopPropagation(); removePage(idx); }} className="hover:text-red-300"><X size={12} /></span>
-                                                )}
-                                            </button>
-                                        ))}
-                                        {buildPages.length < 4 && (
-                                            <button onClick={addPage} className="px-4 py-2 rounded-xl font-bold text-sm bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all flex items-center gap-1">
-                                                <Plus size={14} /> Add
-                                            </button>
+                                <div className="bg-white p-8 rounded-[3.5rem] border border-slate-200 shadow-sm flex flex-col gap-6">
+                                    <div className="flex items-center justify-between px-2">
+                                        <label className="text-[15px] font-black text-slate-400 uppercase tracking-widest">미리보기</label>
+                                        <div className="flex gap-1">
+                                            {buildPages.map((p, idx) => (
+                                                <div key={p.id} className="relative group/btn">
+                                                    <button
+                                                        onClick={() => setActivePageIndex(idx)}
+                                                        className={`w-8 h-8 rounded-full font-bold text-[10px] transition-all flex items-center justify-center ${activePageIndex === idx ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
+                                                    >
+                                                        {p.id}
+                                                    </button>
+                                                    {buildPages.length > 1 && (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                removePage(idx);
+                                                            }}
+                                                            className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/btn:opacity-100 transition-opacity shadow-sm hover:bg-red-600"
+                                                        >
+                                                            <X size={8} strokeWidth={3} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ))}
+                                            {buildPages.length < 4 && (
+                                                <button onClick={addPage} className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all flex items-center justify-center">
+                                                    <Plus size={12} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Combined Preview Area */}
+
+                                    <div className="bg-slate-50/50 p-4 rounded-[2.5rem] border border-slate-100 min-h-[230px]">
+                                        {activeData ? (
+                                            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200/50">
+                                                {(() => {
+                                                    const p = activeData;
+                                                    const pageTitle = p.title || "";
+                                                    const typeKey = p.typeKey || "";
+                                                    let titleImg = ASSETS.TITLES[p.type] || ASSETS.TITLES['개념'];
+
+                                                    // [G1] 함께/스스로 복합형 및 감지 보완
+                                                    if (typeKey === TYPE_KEYS.TOGETHER_SELF || typeKey === TYPE_KEYS.TOGETHER_SELECT) {
+                                                        if (pageTitle.includes('함께')) titleImg = ASSETS.TITLES['함께 풀기'];
+                                                        else if (pageTitle.includes('스스로')) titleImg = ASSETS.TITLES['스스로 풀기'];
+                                                        else if (p.type === '함께 풀기 + 스스로 풀기') {
+                                                            if (p.mainQuestion?.includes('함께')) titleImg = ASSETS.TITLES['함께 풀기'];
+                                                            else if (p.mainQuestion?.includes('스스로')) titleImg = ASSETS.TITLES['스스로 풀기'];
+                                                        }
+                                                    } else if (typeKey === TYPE_KEYS.QUESTION_MATHINPUT) {
+                                                        titleImg = ASSETS.TITLES['문제'];
+                                                    }
+
+                                                    return <img src={titleImg} className="h-6 mb-3 object-contain brightness-95" alt="Title" />;
+                                                })()}
+                                                <div className="space-y-2 mt-4">
+                                                    {(() => {
+                                                        const isTogetherType = activeData.typeKey?.startsWith("together") || activeData.type?.includes("함께");
+                                                        const title = activeData.title || "";
+                                                        const typeKey = activeData.typeKey;
+
+                                                        if (isTogetherType && activeData.lines && activeData.lines.length > 0) {
+                                                            let globalBlankCounter = 0;
+                                                            return (
+                                                                <div className="space-y-5">
+                                                                    <h4 className="text-base font-bold text-slate-800 leading-tight">
+                                                                        {renderMathToHTML(activeData.mainQuestion, typeKey, title, activeData.answers)}
+                                                                    </h4>
+                                                                    <p className="text-xs text-slate-400 font-medium leading-relaxed mb-4">
+                                                                        {renderMathToHTML(activeData.guideText, typeKey, title)}
+                                                                    </p>
+                                                                    <div className="space-y-4 pt-4 border-t border-slate-100">
+                                                                        {activeData.lines.map((line, li) => (
+                                                                            <div key={li} className="flex gap-3 items-start">
+                                                                                {line.label && <div className="text-[10px] font-black text-slate-400 mt-1 shrink-0">{line.label}</div>}
+                                                                                <div className="flex-1 text-sm leading-relaxed text-slate-700">
+                                                                                    {(line.parts || []).map((part, pi) => {
+                                                                                        if (part.type === 'text') return renderMathToHTML(part.content, typeKey, title);
+                                                                                        if (part.type === 'blank') {
+                                                                                            globalBlankCounter++;
+                                                                                            const isSelf = title.includes("스스로");
+                                                                                            const ans = (part.options && part.options[0]) || "";
+                                                                                            return (
+                                                                                                <span key={pi} className="inline-flex items-center align-middle mx-1 relative">
+                                                                                                    <span className={`inline-flex items-center justify-center rounded-md border-2 transition-all relative ${isSelf ? 'w-12 h-7 bg-white border-slate-200 shadow-sm' : 'w-9 h-8 bg-[#00bcf1] border-[#00bcf1] shadow-[0_3px_0_0_#0097c3]'}`}>
+                                                                                                        {!isSelf && (
+                                                                                                            <span className="absolute -top-2.5 -left-2.5 w-5 h-5 bg-slate-900 text-white rounded-full flex items-center justify-center text-[8px] font-black border border-white shadow-sm z-10">
+                                                                                                                {globalBlankCounter}
+                                                                                                            </span>
+                                                                                                        )}
+                                                                                                        {ans && <span className={`text-[9px] font-bold ${isSelf ? 'text-blue-500' : 'text-white'}`}>{ans.length > 4 ? ans.substring(0, 3) + '..' : ans}</span>}
+                                                                                                    </span>
+                                                                                                </span>
+                                                                                            );
+                                                                                        }
+                                                                                        return null;
+                                                                                    })}
+                                                                                </div>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        }
+
+                                                        // Fallback for standard question types
+                                                        return (
+                                                            <>
+                                                                <h4 className="text-base font-bold text-slate-800 leading-tight">
+                                                                    {renderMathToHTML(activeData.mainQuestion, activeData.typeKey, activeData.title, activeData.answers)}
+                                                                </h4>
+                                                                <p className="text-xs text-slate-400 font-medium leading-relaxed">
+                                                                    {renderMathToHTML(activeData.guideText, activeData.typeKey, activeData.title)}
+                                                                </p>
+
+                                                                {/* Sub-items summary */}
+                                                                <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
+                                                                    {(activeData.subQuestions || []).slice(0, 4).map((sq, i) => (
+                                                                        <div key={i} className="flex gap-2 items-start opacity-60">
+                                                                            <div className="w-4 h-4 bg-slate-100 rounded text-[8px] flex items-center justify-center font-bold shrink-0">{sq.label || i + 1}</div>
+                                                                            <div className="text-[10px] text-slate-500 truncate">
+                                                                                {renderMathToHTML(sq.passage || sq.text, activeData.typeKey, activeData.title, Array.isArray(sq.options) ? sq.options : [sq.answer || ""])}
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                    {(activeData.subQuestions || []).length > 4 && (
+                                                                        <div className="text-[9px] text-slate-400 font-bold ml-6">+ {(activeData.subQuestions.length - 4)} more items...</div>
+                                                                    )}
+                                                                </div>
+                                                            </>
+                                                        );
+                                                    })()}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="h-[200px] flex flex-col items-center justify-center text-slate-300 gap-2">
+                                                <Calculator size={32} className="opacity-20" />
+                                                <span className="text-[10px] font-bold">Syncing Data...</span>
+                                            </div>
                                         )}
                                     </div>
 
-                                    <div onClick={() => templateZipInputRef.current.click()} className="aspect-[4/5] bg-slate-50 border-4 border-dashed border-slate-100 rounded-[3rem] flex items-center justify-center overflow-hidden cursor-pointer group hover:bg-indigo-50 hover:border-indigo-200 transition-all relative">
-                                        <input ref={templateZipInputRef} type="file" multiple accept="image/*" onChange={handleBuilderImage} className="hidden" />
-                                        {buildPages[activePageIndex]?.image ? <img src={buildPages[activePageIndex].image} className="w-full h-full object-cover" /> : <div className="text-center text-slate-300"><ImageIcon className="mx-auto mb-2" size={48} /><span className="text-xs font-bold">Upload Image(s)</span></div>}
-                                    </div>
 
-                                    <details className="mt-10 mb-5 text-slate-400">
+                                    <details className="mb-5 text-slate-400">
                                         <summary className="cursor-pointer text-xs font-black uppercase tracking-widest hover:text-indigo-500 transition-colors">[선택] 유형 및 템플릿 직접 설정</summary>
                                         <div className="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-4">
 
@@ -1812,75 +2017,50 @@ const App = () => {
                                         </div>
                                     </details>
                                 </div>
+
+                                {/* Source Image Card (Outside Live Preview) */}
+                                {buildPages[activePageIndex]?.image && (
+                                    <div
+                                        className="bg-white p-4 rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col gap-3 cursor-zoom-in hover:border-indigo-200 transition-all group scale-100 hover:scale-[1.02] active:scale-95"
+                                        onClick={() => setZoomedImage(buildPages[activePageIndex].image)}
+                                    >
+                                        <div className="flex items-center justify-between px-2">
+                                            <div className="flex items-center gap-2 text-slate-400">
+                                                <ImageIcon size={14} />
+                                                <span className="text-[10px] font-black uppercase tracking-wider">교과서 이미지</span>
+                                            </div>
+                                            <div className="text-[10px] font-bold text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity">Click to zoom</div>
+                                        </div>
+                                        <div className="bg-slate-50 rounded-[1.5rem] overflow-hidden aspect-video border border-slate-100/50">
+                                            <img
+                                                src={buildPages[activePageIndex].image}
+                                                className="w-full h-full object-contain"
+                                                alt="Source"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
-                            <div className="col-span-2">
-                                <div className="bg-white p-12 rounded-[4.5rem] border border-slate-200 shadow-sm min-h-[600px] flex flex-col relative overflow-hidden">
+                            <div className="col-span-3 h-[calc(100vh-180px)] overflow-y-auto pr-4 custom-scrollbar">
+                                <div className="bg-white p-10 rounded-[4.5rem] border border-slate-200 shadow-sm min-h-[600px] flex flex-col relative overflow-hidden">
 
                                     {buildPages[activePageIndex]?.data ? (
                                         <div className="w-full space-y-10 animate-in slide-in-from-right-10 duration-500">
 
-                                            {/* [NEW] Universal Strategy Card */}
-                                            <div className={`p-6 rounded-[2.5rem] border-2 transition-all ${detectedTypeKey ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-200'}`}>
-                                                <div className="flex items-center justify-between mb-4">
-                                                    <div className="flex items-center gap-3">
-                                                        <ShieldCheck size={20} className="text-indigo-600" />
-                                                        <span className="font-black text-xs uppercase tracking-wider text-slate-500">템플릿 탐색 결과</span>
-                                                    </div>
-                                                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase text-white ${hasExactTemplate ? 'bg-emerald-500' : 'bg-indigo-500'}`}>
-                                                        {hasExactTemplate ? '일치' : '불일치'}
-                                                    </span>
-                                                </div>
 
-                                                <div className="space-y-3">
-                                                    <div className="flex items-center justify-between p-3 bg-white rounded-2xl border border-indigo-100 shadow-sm">
-                                                        <span className="text-xs font-bold text-slate-400 uppercase">콘텐츠 유형</span>
-                                                        <span className="text-sm font-black text-slate-800">{detectedTypeKey || "Not Detected"}</span>
-                                                    </div>
-
-                                                    {!hasExactTemplate && (
-                                                        <div className="flex items-center gap-4">
-                                                            <div className="bg-white p-3 rounded-xl border border-indigo-100 flex-1">
-                                                                <label className="text-[10px] font-black text-indigo-400 uppercase block mb-1">Input Style</label>
-                                                                <div className="flex bg-indigo-50 rounded-lg p-1">
-                                                                    {['math', 'text', 'ocr'].map(k => (
-                                                                        <button
-                                                                            key={k}
-                                                                            onClick={() => setInputKind(k)}
-                                                                            className={`flex-1 py-1 text-xs font-bold rounded-md transition-all ${inputKind === k ? 'bg-white shadow-sm text-indigo-600' : 'text-indigo-300 hover:text-indigo-500'}`}
-                                                                        >
-                                                                            {k}
-                                                                        </button>
-                                                                    ))}
-                                                                </div>
-                                                            </div>
-                                                            <div className="bg-white p-3 rounded-xl border border-indigo-100 flex-1">
-                                                                <label className="text-[10px] font-black text-indigo-400 uppercase block mb-1">Illustration</label>
-                                                                <button
-                                                                    onClick={() => setHasImage(!hasImage)}
-                                                                    className={`w-full py-2 text-xs font-bold rounded-lg transition-all ${hasImage ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}
-                                                                >
-                                                                    {hasImage ? 'Enabled' : 'Disabled'}
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
 
                                             <div className="flex items-center justify-between mt-8">
-                                                <h3 className="text-3xl font-extrabold tracking-tight text-slate-900">Page {buildPages[activePageIndex].id} Data</h3>
-                                                <span className="bg-emerald-50 text-emerald-600 px-4 py-1.5 rounded-full text-[10px] font-bold uppercase border border-emerald-100 flex items-center gap-2">
-                                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Engine Ready
-                                                </span>
+                                                <h3 className="text-3xl font-extrabold tracking-tight text-slate-900">View {buildPages[activePageIndex].id}</h3>
+
                                             </div>
 
                                             <div className="p-8 bg-white rounded-[2.5rem] border border-slate-200 shadow-sm space-y-6">
                                                 <div>
-                                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1 mb-2">Main Question</label>
+                                                    <label className="text-[15px] font-bold text-slate-400 uppercase tracking-widest block ml-1 mb-2">발문</label>
                                                     <input className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 font-bold text-lg text-slate-800 focus:bg-white transition-all" value={buildPages[activePageIndex].data.mainQuestion} onChange={e => updateCurrentPageData({ ...buildPages[activePageIndex].data, mainQuestion: e.target.value })} />
                                                 </div>
                                                 <div>
-                                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1 mb-2">Guide Text</label>
+                                                    <label className="text-[15px] font-bold text-slate-400 uppercase tracking-widest block ml-1 mb-2">지문</label>
                                                     <input className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 font-medium text-sm text-slate-600 focus:bg-white transition-all" value={buildPages[activePageIndex].data.guideText || ""} onChange={e => updateCurrentPageData({ ...buildPages[activePageIndex].data, guideText: e.target.value })} />
                                                 </div>
                                             </div>
@@ -1978,9 +2158,8 @@ function SubQuestionsEditor({ currentData, onChange }) {
                             {item.label || i + 1}
                         </span>
                         <div className="flex-1 space-y-2">
-                            <label className="text-[10px] font-bold text-slate-400 uppercase">Question / Passage</label>
                             <textarea
-                                rows={2}
+                                rows={1}
                                 className="w-full p-3 bg-slate-50 rounded-xl text-sm font-medium outline-none resize-none"
                                 value={item.passage || ""}
                                 onChange={(e) => {
@@ -1994,7 +2173,7 @@ function SubQuestionsEditor({ currentData, onChange }) {
 
                     <div className="grid grid-cols-2 gap-6">
                         <div>
-                            <label className="text-[10px] font-bold text-emerald-500 uppercase mb-2 block">Correct Answer</label>
+                            <label className="text-[15px] font-bold text-emerald-500 uppercase mb-2 block">정답</label>
                             <input
                                 className="w-full p-3 bg-emerald-50/50 border border-emerald-100 rounded-xl text-sm font-bold text-emerald-700 outline-none"
                                 value={item.answer || ""}
@@ -2007,7 +2186,7 @@ function SubQuestionsEditor({ currentData, onChange }) {
                         </div>
 
                         <div>
-                            <label className="text-[10px] font-bold text-indigo-400 uppercase mb-2 block">Explanation</label>
+                            <label className="text-[15px] font-bold text-indigo-400 uppercase mb-2 block">해설</label>
                             <input
                                 className="w-full p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl text-sm font-bold text-indigo-700 outline-none"
                                 value={item.explanation || ""}
@@ -2034,7 +2213,7 @@ function SubQuestionsEditor({ currentData, onChange }) {
                 }
                 className="w-full py-4 rounded-[2rem] bg-slate-100 hover:bg-slate-200 font-black text-sm text-slate-600"
             >
-                + Add Sub Question
+                + 소문항 추가
             </button>
         </div>
     );
@@ -2072,7 +2251,7 @@ function TogetherSelectEditor({ currentData, onChange }) {
         <div className="space-y-8">
             <div className="p-8 bg-blue-50/60 border border-blue-200 rounded-[2.5rem] space-y-5">
                 <div>
-                    <div className="text-xs font-black uppercase tracking-widest text-blue-600">Together Select Section</div>
+                    <div className="text-xs font-black uppercase tracking-widest text-blue-600">함께 풀기(선택형)</div>
                     <div className="text-sm font-bold text-slate-600 mt-1">각 빈칸의 정답과 오답 선택지를 설정하세요.</div>
                 </div>
 
@@ -2083,12 +2262,12 @@ function TogetherSelectEditor({ currentData, onChange }) {
                                 <div className="w-8 h-8 rounded-lg bg-blue-500 text-white font-black flex items-center justify-center text-xs">
                                     {idx + 1}
                                 </div>
-                                <span className="font-bold text-slate-700">빈칸 #{idx + 1} 선택지 설정</span>
+                                <span className="font-bold text-slate-700">빈칸 {idx + 1}번 선택지 설정</span>
                             </div>
 
                             <div className="grid grid-cols-3 gap-4">
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-emerald-500 uppercase tracking-widest block">Correct Answer (Option 1)</label>
+                                    <label className="text-[10px] font-black text-emerald-500 uppercase tracking-widest block">정답</label>
                                     <input
                                         className="w-full p-3 rounded-xl border border-emerald-100 bg-emerald-50/30 font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-200"
                                         value={part.options?.[0] || ""}
@@ -2096,7 +2275,7 @@ function TogetherSelectEditor({ currentData, onChange }) {
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-rose-400 uppercase tracking-widest block">Wrong Answer 1 (Option 2)</label>
+                                    <label className="text-[10px] font-black text-rose-400 uppercase tracking-widest block">오답 1</label>
                                     <input
                                         className="w-full p-3 rounded-xl border border-rose-100 bg-rose-50/30 font-bold text-sm outline-none focus:ring-2 focus:ring-rose-200"
                                         value={part.options?.[1] || ""}
@@ -2104,7 +2283,7 @@ function TogetherSelectEditor({ currentData, onChange }) {
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-rose-400 uppercase tracking-widest block">Wrong Answer 2 (Option 3)</label>
+                                    <label className="text-[10px] font-black text-rose-400 uppercase tracking-widest block">오답 2</label>
                                     <input
                                         className="w-full p-3 rounded-xl border border-rose-100 bg-rose-50/30 font-bold text-sm outline-none focus:ring-2 focus:ring-rose-200"
                                         value={part.options?.[2] || ""}
@@ -2113,15 +2292,7 @@ function TogetherSelectEditor({ currentData, onChange }) {
                                 </div>
                             </div>
 
-                            <div className="pt-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Explanation</label>
-                                <input
-                                    className="w-full p-3 rounded-xl border border-slate-100 bg-slate-50/50 text-sm font-medium"
-                                    placeholder="이 문항에 대한 해설을 입력하세요 (선택 사항)"
-                                    value={part.explanation || ""}
-                                    onChange={(e) => patchPart(li, pi, { ...part, explanation: e.target.value })}
-                                />
-                            </div>
+
                         </div>
                     ))}
 
@@ -2200,108 +2371,89 @@ function TogetherSelfEditor({ currentData, onChange, onClickLabelZip }) {
     };
 
     return (
-        <div className="space-y-8">
+        <div className="animate-in fade-in duration-00">
+
             {/* Together Section */}
-            <div className="p-8 bg-amber-50/60 border border-amber-200 rounded-[2.5rem] space-y-5">
-                <div>
-                    <div className="text-xs font-black uppercase tracking-widest text-amber-600">
-                        Together Section
+            {!isSelfStudy && (
+                <div className="p-8 bg-amber-50/60 border border-amber-200 rounded-[2.5rem] space-y-5">
+                    <div>
+                        <div className="text-sm font-bold text-slate-600 mt-1">
+                            각 딱지(blank)의 숫자 값 + 라벨 표시 여부
+                        </div>
                     </div>
-                    <div className="text-sm font-bold text-slate-600 mt-1">
-                        각 딱지(blank)의 숫자 값 + 라벨 표시 여부
-                    </div>
-                    <div className="text-xs font-bold text-slate-400 mt-1">
-                        (다운로드는 아래 “콘텐츠 다운로드” 버튼을 누르면 반영됨)
-                    </div>
-                </div>
 
-                <div className="space-y-3">
-                    {blanks.map(({ li, pi, part }, idx) => (
-                        <div
-                            key={`${li}-${pi}`}
-                            className="flex items-center gap-3 bg-white rounded-2xl border border-amber-100 p-4"
-                        >
-                            <div className="w-10 h-10 rounded-xl bg-amber-500 text-white font-black flex items-center justify-center">
-                                {idx + 1}
-                            </div>
-
-                            <div className="flex-1 grid grid-cols-3 gap-3 items-center">
-                                <div className="col-span-2">
-                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">
-                                        Number Value
-                                    </label>
-                                    <input
-                                        type="number"
-                                        className="w-full p-3 rounded-xl border border-slate-200 font-bold"
-                                        value={getBlankAnswer(part)}
-                                        onChange={(e) => setBlankAnswer(li, pi, part, e.target.value)}
-                                    />
+                    <div className="space-y-3">
+                        {blanks.map(({ li, pi, part }, idx) => (
+                            <div
+                                key={`${li}-${pi}`}
+                                className="flex items-center gap-3 bg-white rounded-2xl border border-amber-100 p-4"
+                            >
+                                <div className="w-10 h-10 rounded-xl bg-amber-500 text-white font-black flex items-center justify-center">
+                                    {idx + 1}
                                 </div>
 
-                                <div>
-                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">
-                                        Label
-                                    </label>
-                                    <button
-                                        onClick={() => toggleLabel(li, pi, part)}
-                                        className={`w-full py-3 rounded-xl font-black text-xs transition-all ${part.labelEnabled
-                                            ? "bg-slate-900 text-white"
-                                            : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                                            }`}
-                                    >
-                                        {part.labelEnabled ? "ON" : "OFF"}
-                                    </button>
+                                <div className="flex-1 grid grid-cols-3 gap-3 items-center">
+                                    <div className="col-span-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">
+                                            라벨 번호
+                                        </label>
+                                        <input
+                                            type="number"
+                                            className="w-full p-3 rounded-xl border border-slate-200 font-bold"
+                                            value={getBlankAnswer(part)}
+                                            onChange={(e) => setBlankAnswer(li, pi, part, e.target.value)}
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">
+                                            Label
+                                        </label>
+                                        <button
+                                            onClick={() => toggleLabel(li, pi, part)}
+                                            className={`w-full py-3 rounded-xl font-black text-xs transition-all ${part.labelEnabled
+                                                ? "bg-slate-900 text-white"
+                                                : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                                                }`}
+                                        >
+                                            {part.labelEnabled ? "ON" : "OFF"}
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    ))}
+                        ))}
 
-                    {blanks.length === 0 && (
-                        <div className="p-6 bg-white rounded-2xl border border-amber-100 text-slate-400 font-bold">
-                            blank(딱지) 파트가 없습니다. lines/parts 구조를 확인하세요.
-                        </div>
-                    )}
+                        {blanks.length === 0 && (
+                            <div className="p-6 bg-white rounded-2xl border border-amber-100 text-slate-400 font-bold">
+                                데이터가 없습니다. 다시 교과서 분석을 진행해 주세요.
+                            </div>
+                        )}
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* Self Section */}
-            <div className="p-8 bg-indigo-50/60 border border-indigo-200 rounded-[2.5rem] space-y-6">
-                <div>
-                    <div className="text-xs font-black uppercase tracking-widest text-indigo-600">
-                        Self Section
-                    </div>
-                    <div className="text-sm font-bold text-slate-600 mt-1">
-                        빈칸 정답 + 해설(1개)
-                    </div>
-                </div>
+            {isSelfStudy && (
+                <div className="p-8 bg-indigo-50/60 border border-indigo-200 rounded-[2.5rem] space-y-6">
 
-                <div className="grid grid-cols-2 gap-4">
-                    {blanks.map(({ li, pi, part }, idx) => (
-                        <div key={`self-${li}-${pi}`} className="bg-white rounded-2xl border border-indigo-100 p-4">
-                            <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2">
-                                Blank Answer #{idx + 1}
-                            </label>
-                            <input
-                                className="w-full p-3 rounded-xl border border-slate-200 font-bold"
-                                value={getBlankAnswer(part)}
-                                onChange={(e) => setBlankAnswer(li, pi, part, e.target.value)}
-                            />
-                        </div>
-                    ))}
-                </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        {blanks.map(({ li, pi, part }, idx) => (
+                            <div key={`self-${li}-${pi}`} className="bg-white rounded-2xl border border-indigo-100 p-4">
+                                <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2">
+                                    빈칸 {idx + 1}
+                                </label>
+                                <input
+                                    className="w-full p-3 rounded-xl border border-slate-200 font-bold"
+                                    value={getBlankAnswer(part)}
+                                    onChange={(e) => setBlankAnswer(li, pi, part, e.target.value)}
+                                />
+                            </div>
+                        ))}
+                    </div>
 
-                <div className="bg-white rounded-2xl border border-indigo-100 p-4">
-                    <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2">
-                        Explanation (1개) — 첫 번째 빈칸에 저장
-                    </label>
-                    <textarea
-                        rows={3}
-                        className="w-full p-3 rounded-xl border border-slate-200 font-medium resize-none"
-                        value={singleExplanation}
-                        onChange={(e) => setSingleExplanation(e.target.value)}
-                    />
+
                 </div>
-            </div>
+            )}
         </div>
     );
 }

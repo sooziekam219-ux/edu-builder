@@ -1,7 +1,7 @@
 // src/engine/utils/sanitize.js
 
 export const sanitizeLaTeX = (str) => {
-  if (!str) return "";
+  if (typeof str !== 'string' || !str) return "";
   let sanitized = str.trim();
 
   // 1. $...$ 또는 $$...$$ -> \(...\) (줄바꿈 포함 및 중복 처리 방지)

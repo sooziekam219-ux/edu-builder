@@ -92,7 +92,7 @@ export async function processAndDownloadZip({
       typeKey = customConfig.typeKey;
 
       // [NEW] Select Strategy based on typeKey
-      if (typeKey === "together.custom") {
+      if (typeKey === "together.custom" || typeKey === TYPE_KEYS.TOGETHER_SELECT) {
         engine = createTogetherStrategy(customConfig.strategy.options);
       } else if (typeKey === TYPE_KEYS.CONCEPT) {
         console.log("Concept Strategy Selected for Draft"); // Debug

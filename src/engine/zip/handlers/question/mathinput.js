@@ -18,11 +18,14 @@ const mathInputHandler = {
         explanation: q.explanation ?? "",
         inputWidth: q.inputWidth || "w200",
       })),
+      figure_bounds: raw?.figure_bounds || [0, 0, 0, 0],
+      figure_alt: raw?.figure_alt || "",
+      contentImageUrl: raw?.contentImageUrl || null
     };
   },
 
   getSkeletonConfig(data) {
-    // [FIX] mathinput.js needs to return image info for zipProcessor to process cropping
+    // [FIX] Use keys normalized by the same handler
     return {
       hasImage: !!(data?.figure_bounds && data.figure_bounds.some(v => v !== 0)),
       contentImageUrl: data?.contentImageUrl || null,

@@ -117,7 +117,7 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
 
                         // [Improved Width Estimation] LaTeX awareness
                         // Width should be based on visual horizontal space. Fractions are vertical.
-                        const cleanAnswer = answer
+                        const cleanAnswer = String(answer || "")
                             .replace(/\\\(|\\\)|\\\[|\\\]/g, '') // Strip delimiters
                             .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, (match, p1, p2) => {
                                 // For width estimation, a fraction is roughly as wide as its widest part
