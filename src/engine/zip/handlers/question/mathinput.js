@@ -21,6 +21,16 @@ const mathInputHandler = {
     };
   },
 
+  getSkeletonConfig(data) {
+    // [FIX] mathinput.js needs to return image info for zipProcessor to process cropping
+    return {
+      hasImage: !!(data?.figure_bounds && data.figure_bounds.some(v => v !== 0)),
+      contentImageUrl: data?.contentImageUrl || null,
+      figureBounds: data?.figure_bounds || [0, 0, 0, 0],
+      figureAlt: data?.figure_alt || "문제 이미지"
+    };
+  },
+
   injectHtmlPage({ doc, manifest, data, pageIndex }) {
     // 1. 공통 헤더/가이드/발문
     injectQuestionBase({ doc, data, manifest });

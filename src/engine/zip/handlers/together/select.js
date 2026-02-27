@@ -15,11 +15,15 @@ function normalize(raw) {
 function injectTogetherSelectHtml({ doc, data }) {
   console.log("injectTogetherSelectHtml called", data); // Debug log
 
-  const container = doc.querySelector('div[translate="no"]');
+  const container = doc.querySelector('div[translate="no"]') || doc.querySelector('main');
   if (!container) {
     console.warn("Container not found");
     return;
   }
+  // MathJax 스캔을 방해하는 translate="no" 속성 제거
+  container.removeAttribute('translate');
+  // MathJax 강제 스캔을 위한 클래스 추가
+  container.classList.add('tex2jax_process');
 
   const existingLines = Array.from(container.querySelectorAll(".txt1"));
   console.log("Existing lines count:", existingLines.length);
@@ -60,7 +64,7 @@ function injectTogetherSelectHtml({ doc, data }) {
     (line.parts || []).forEach((part) => {
       if (part.type === "text") {
         const tSpan = doc.createElement("span");
-        tSpan.className = line.label ? "math" : "ml10 math";
+        tSpan.className = line.label ? "math math-tex tex2jax_process" : "ml10 math math-tex tex2jax_process";
         tSpan.setAttribute("translate", "no");
         tSpan.innerHTML = sanitizeLaTeX(part.content);
         newLine.appendChild(tSpan);
@@ -79,11 +83,11 @@ function injectTogetherSelectHtml({ doc, data }) {
 <label for="check-blank${bId}" class="btn-blank">빈칸</label>
 <ul class="select-wrap bottom">
   ${options
-            .map((opt, oIdx) => `<li><button type="button" class="btn-select math ans${oIdx + 1}" translate="no">${sanitizeLaTeX(opt)}</button></li>`)
+            .map((opt, oIdx) => `<li><button type="button" class="btn-select math math-tex ans${oIdx + 1}" translate="no">${sanitizeLaTeX(opt)}</button></li>`)
             .join("")}
 </ul>
 <span class="write-txt" style="width: ${part.width || 120}px"></span>
-<span class="correct math" translate="no">${finalCorrect}</span>
+<span class="correct math math-tex tex2jax_process" translate="no">${finalCorrect}</span>
 `;
         newLine.appendChild(bSpan);
       }
@@ -95,35 +99,41 @@ function injectTogetherSelectHtml({ doc, data }) {
 
 function patchTogetherSelectActJs(actJsText, data) {
   const daps = [];
-  (data.lines || []).forEach((l) =>
-    l.parts?.filter((p) => p.type === "blank").forEach((p) => {
-      // 템플릿 엔진은 1-based 인덱스를 사용하므로 +1 처리
-      const idx = parseInt(p.correctIndex, 10) || 1;
-      daps.push(idx);
-    })
-  );
+
+  // 모든 라인을 순회하며 그 안의 모든 빈칸(blank)의 정답을 순서대로 수집
+  (data.lines || []).forEach((line) => {
+    (line.parts || []).forEach((part) => {
+      if (part.type === "blank") {
+        const idx = parseInt(part.correctIndex, 10) || 1;
+        daps.push(idx);
+      }
+    });
+  });
 
   let out = actJsText;
-
-  // 1. dap_array 패치 (정답 인스턴스)
-  out = out.replace(/var\s+dap_array\s*=\s*\[[\s\S]*?\]\s*;/g, `var dap_array = ${JSON.stringify(daps)};`);
-
-  // 2. [추가] 템플릿 규격에 따라 ans_array와 card_array도 패치
   const zeros = daps.map(() => 0);
-  if (out.includes("var ans_array")) {
-    out = out.replace(/var\s+ans_array\s*=\s*\[[\s\S]*?\]\s*;/g, `var ans_array = ${JSON.stringify(daps)};`);
+
+  // 1. dap_array 치환 (var/let/const 및 유연한 공백 대응)
+  const dapRegex = /(?:var|let|const)\s+dap_array\s*=\s*\[[\s\S]*?\]\s*;/g;
+  if (dapRegex.test(out)) {
+    out = out.replace(dapRegex, `var dap_array = ${JSON.stringify(daps)};`);
   } else {
-    out = out.replace(/var\s+dap_array/, `var ans_array = ${JSON.stringify(daps)};\nvar dap_array`);
+    out = out.replace(/dap_array\s*=\s*\[[\s\S]*?\]\s*;/g, `dap_array = ${JSON.stringify(daps)};`);
   }
 
-  if (out.includes("var card_array")) {
-    out = out.replace(/var\s+card_array\s*=\s*\[[\s\S]*?\]\s*;/g, `var card_array = ${JSON.stringify(zeros)};`);
-  } else {
-    out = out.replace(/var\s+dap_array/, `var card_array = ${JSON.stringify(zeros)};\nvar dap_array`);
+  // 2. 관련 보조 배열 동기화 (ans_array, card_array)
+  const ansRegex = /(?:var|let|const)\s+ans_array\s*=\s*\[[\s\S]*?\]\s*;/g;
+  const cardRegex = /(?:var|let|const)\s+card_array\s*=\s*\[[\s\S]*?\]\s*;/g;
+
+  if (ansRegex.test(out)) {
+    out = out.replace(ansRegex, `var ans_array = ${JSON.stringify(zeros)};`);
+  }
+  if (cardRegex.test(out)) {
+    out = out.replace(cardRegex, `var card_array = ${JSON.stringify(zeros)};`);
   }
 
-  out = out.replace(/var\s+q_len\s*=\s*\d+;/g, `var q_len = ${daps.length};`);
-  out = out.replace(/var\s+q_len\s*=\s*dap_array\.length\s*;/g, `var q_len = ${daps.length};`);
+  // 3. 문항 개수(q_len) 업데이트
+  out = out.replace(/(?:var|let|const)\s+q_len\s*=\s*[^;]+;/g, `var q_len = ${daps.length};`);
 
   return out;
 }

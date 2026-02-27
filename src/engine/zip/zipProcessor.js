@@ -204,7 +204,7 @@ export async function processAndDownloadZip({
       // 엔진 주입 전, 뼈대 수정 (Skeleton Modification)
       let skeletonConfig = {};
       if (engine.getSkeletonConfig) {
-        skeletonConfig = engine.getSkeletonConfig() || {};
+        skeletonConfig = engine.getSkeletonConfig(normalizedData) || {};
       }
 
       // --- HTML ---
@@ -348,15 +348,50 @@ export async function processAndDownloadZip({
         }
       }
 
+      // [UPDATE] stxt Removal if image exists
+      if (skeletonConfig.contentImageUrl) {
+        const stxt = doc.querySelector(".stxt");
+        if (stxt) stxt.remove();
+      }
+
       // Content Image Injection
       if (skeletonConfig.contentImageUrl) {
         const img = doc.createElement("img");
         img.src = skeletonConfig.contentImageUrl;
         if (skeletonConfig.altText) img.alt = skeletonConfig.altText;
-        img.className = "w-full max-w-3xl mt-4 rounded-xl border border-slate-200 block mx-auto shadow-sm mb-4";
+        img.className = "w-full max-w-3xl mt-4 rounded-xl border border-slate-200 block mx-auto shadow-sm mb-4 illustration-img";
 
-        // [NEW] Generic Injection via imageTargetSelector
-        if (skeletonConfig.imageTargetSelector) {
+        // [UPDATE] Vertical Layout and Sequential Injection
+        const rowTemplate = doc.querySelector(skeletonConfig.rowTemplate || ".flex-row.ai-s.jc-sb");
+        if (rowTemplate) {
+          // Change to vertical layout
+          rowTemplate.classList.remove("flex-row", "ai-s", "jc-sb");
+          rowTemplate.classList.add("flex-col", "ai-c", "gap20");
+          rowTemplate.style.display = "flex";
+          rowTemplate.style.flexDirection = "column";
+          rowTemplate.style.alignItems = "center";
+
+          // Inject image after question text (.q) and before inputs
+          const qBox = doc.querySelector(".q");
+          if (qBox) {
+            // Place after .q or as first child of row if .q is not inside it
+            rowTemplate.insertBefore(img, rowTemplate.firstChild); // default
+            if (qBox.parentNode === rowTemplate.parentNode || qBox.parentNode === rowTemplate) {
+              // If rowTemplate contains/follows qBox, we might need more specific logic
+              // For mathinput, the row contains .a2 (label/p) and .flex-col (input)
+            }
+          }
+
+          // Re-adjust inner elements for center align if vertical
+          const a2 = rowTemplate.querySelector(".a2");
+          if (a2) {
+            a2.style.textAlign = "center";
+            a2.style.width = "100%";
+            // Inject image after question text in vertical layout
+            a2.appendChild(img);
+          }
+        }
+        else if (skeletonConfig.imageTargetSelector) {
           const target = doc.querySelector(skeletonConfig.imageTargetSelector);
           if (target && target.parentNode) {
             const pos = skeletonConfig.imagePosition || "prepend";
@@ -366,16 +401,6 @@ export async function processAndDownloadZip({
               target.appendChild(img);
             } else {
               target.parentNode.insertBefore(img, target);
-            }
-          }
-        }
-        // Legacy Injection (for input_v1)
-        else {
-          const rowTemplate = doc.querySelector(skeletonConfig.rowTemplate || ".flex-row.ai-s.jc-sb");
-          if (rowTemplate) {
-            const passage = rowTemplate.querySelector(".a2 p") || rowTemplate.querySelector(".passage");
-            if (passage && passage.parentNode) {
-              passage.parentNode.insertBefore(img, passage.nextSibling);
             }
           }
         }

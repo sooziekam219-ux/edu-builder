@@ -26,7 +26,10 @@ export function injectQuestionBase({ doc, data, manifest }) {
       const stxt = p.querySelector(".stxt");
       p.innerHTML = "";
       p.appendChild(doc.createTextNode(data.mainQuestion));
-      if (stxt) p.appendChild(stxt);
+      if (stxt) {
+        // [FIX] stxt should be a sibling of p, not a child
+        p.parentNode.insertBefore(stxt, p.nextSibling);
+      }
     }
   }
 }

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { processAndDownloadZip } from "./engine/zip/zipProcessor";
 import { TYPE_KEYS } from "./engine/typeKeys";
+import { sanitizeLaTeX } from "./engine/utils/sanitize"; // [NEW] Math Sanitizer
 console.log("App.js loaded");
 
 
@@ -120,6 +121,13 @@ const KIM_HWA_KYUNG_PROMPT = `
   3. **Full Context:** Extract the complete sentence including the '□'.
   4. **Answer Extraction:** Place the actual text that was on the underline into the "answers" array in the correct sequence.
   5. **LaTeX:** Ensure all mathematical expressions within or around the underline are wrapped in \( ... \).
+
+  **Illustration Detection (NEW):**
+  - **Only for '문제' (question.mathinput) type:** If a section contains an illustration, diagram, or specific figure (like a photo card or geometry figure), extract its coordinates.
+  - Illustrations are NOT expected in '함께 풀기' or '스스로 풀기' sections.
+  - **figure_bounds:** [ymin, xmin, ymax, xmax] (0-1000 scale). If none, [0,0,0,0].
+  - **figure_alt:** Brief description of the figure.
+
   Output JSON format:
   {
     "sections": [
@@ -127,7 +135,9 @@ const KIM_HWA_KYUNG_PROMPT = `
         "type": "함께 풀기 + 스스로 풀기",
         "subtype": "복합형",
         "content": { "title": "함께 풀기", "instruction": "...", "body": "전체 텍스트..." },
-        "answers": ["정답"]
+        "answers": ["정답"],
+        "figure_bounds": [0,0,0,0],
+        "figure_alt": "이미지 설명"
       }
     ]
   }
@@ -187,25 +197,6 @@ JSON 구조 예시:
 
 
 // --- Helpers ---
-// edubuilder_260206.jsx 상단의 sanitizeLaTeX 함수 수정
-const sanitizeLaTeX = (str) => {
-    if (!str) return "";
-    let sanitized = str;
-
-    // 1. $ ... $ 형태를 \( ... \) 형태로 치환
-    sanitized = sanitized.replace(/\$(.*?)\$/g, '\\($1\\)');
-
-    // 2. 기존 로직: 백슬래시나 수식 기호가 있는데 \( 가 없는 경우 보정
-    // 단, '_' 가 단독으로 있거나 공백 사이에 있는 경우는 빈칸 기호이므로 제외
-    if ((sanitized.includes('\\') || sanitized.includes('^') || (sanitized.includes('_') && /[a-zA-Z0-9]_[a-zA-Z0-9]/.test(sanitized))) && !sanitized.includes('\\(')) {
-        sanitized = `\\(${sanitized}\\)`;
-    }
-
-    // 3. 중복된 \( \( 제거 (방어적 코드)
-    sanitized = sanitized.replace(/\\\((\\\(.*?\\\))\\\)/g, '$1');
-
-    return sanitized;
-};
 
 const generateLogicText = (type, subtype, answers) => {
     const hasAnswer = answers && answers.length > 0;
@@ -532,361 +523,9 @@ const App = () => {
     }
 
 
-    function ensureSubQuestions(data) {
-        const sub = Array.isArray(data.subQuestions) ? data.subQuestions : [];
-        return sub.length ? sub : [{ label: "1", passage: "", answer: "", explanation: "" }];
-    }
 
-    function SubQuestionsEditor({ currentData, onChange }) {
-        const subQuestions = ensureSubQuestions(currentData);
-
-        return (
-            <div className="space-y-6">
-                {subQuestions.map((item, i) => (
-                    <div key={i} className="p-8 bg-white border border-slate-100 rounded-[2.5rem] space-y-6 shadow-sm">
-                        <div className="flex items-start gap-5">
-                            <span className="w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center font-bold text-sm">
-                                {item.label || i + 1}
-                            </span>
-                            <div className="flex-1 space-y-2">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase">Question / Passage</label>
-                                <textarea
-                                    rows={2}
-                                    className="w-full p-3 bg-slate-50 rounded-xl text-sm font-medium outline-none resize-none"
-                                    value={item.passage || ""}
-                                    onChange={(e) => {
-                                        const next = [...subQuestions];
-                                        next[i] = { ...next[i], passage: e.target.value };
-                                        onChange({ ...currentData, subQuestions: next });
-                                    }}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-6">
-                            <div>
-                                <label className="text-[10px] font-bold text-emerald-500 uppercase mb-2 block">Correct Answer</label>
-                                <input
-                                    className="w-full p-3 bg-emerald-50/50 border border-emerald-100 rounded-xl text-sm font-bold text-emerald-700 outline-none"
-                                    value={item.answer || ""}
-                                    onChange={(e) => {
-                                        const next = [...subQuestions];
-                                        next[i] = { ...next[i], answer: e.target.value };
-                                        onChange({ ...currentData, subQuestions: next });
-                                    }}
-                                />
-                            </div>
-
-                            <div>
-                                <label className="text-[10px] font-bold text-indigo-400 uppercase mb-2 block">Explanation</label>
-                                <input
-                                    className="w-full p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl text-sm font-bold text-indigo-700 outline-none"
-                                    value={item.explanation || ""}
-                                    onChange={(e) => {
-                                        const next = [...subQuestions];
-                                        next[i] = { ...next[i], explanation: e.target.value };
-                                        onChange({ ...currentData, subQuestions: next });
-                                    }}
-                                />
-                            </div>
-                        </div>
-                    </div>
-                ))}
-
-                <button
-                    onClick={() =>
-                        onChange({
-                            ...currentData,
-                            subQuestions: [
-                                ...subQuestions,
-                                { label: String(subQuestions.length + 1), passage: "", answer: "", explanation: "" }
-                            ]
-                        })
-                    }
-                    className="w-full py-4 rounded-[2rem] bg-slate-100 hover:bg-slate-200 font-black text-sm text-slate-600"
-                >
-                    + Add Sub Question
-                </button>
-            </div>
-        );
-    }
-
-    function MathInputEditor({ currentData, onChange }) {
-        return <SubQuestionsEditor currentData={currentData} onChange={onChange} />;
-    }
-
-    function TogetherSelectEditor({ currentData, onChange }) {
-        const lines = Array.isArray(currentData?.lines) ? currentData.lines : [];
-
-        // blank 파트만 한 번에 모으기(순서 유지)
-        const blanks = [];
-        lines.forEach((line, li) => {
-            (line.parts || []).forEach((part, pi) => {
-                if (part?.type === "blank") blanks.push({ li, pi, part });
-            });
-        });
-
-        const patchPart = (li, pi, nextPart) => {
-            const nextLines = lines.map((l, idx) =>
-                idx !== li ? l : { ...l, parts: (l.parts || []).map((p, j) => (j !== pi ? p : nextPart)) }
-            );
-            onChange({ ...currentData, lines: nextLines });
-        };
-
-        const updateOption = (li, pi, part, optIdx, value) => {
-            const nextOptions = [...(part.options || ["", "", ""])];
-            nextOptions[optIdx] = value;
-            patchPart(li, pi, { ...part, options: nextOptions });
-        };
-
-        return (
-            <div className="space-y-8">
-                <div className="p-8 bg-blue-50/60 border border-blue-200 rounded-[2.5rem] space-y-5">
-                    <div>
-                        <div className="text-xs font-black uppercase tracking-widest text-blue-600">Together Select Section</div>
-                        <div className="text-sm font-bold text-slate-600 mt-1">각 빈칸의 정답과 오답 선택지를 설정하세요.</div>
-                    </div>
-
-                    <div className="space-y-4">
-                        {blanks.map(({ li, pi, part }, idx) => (
-                            <div key={`${li}-${pi}`} className="bg-white rounded-2xl border border-blue-100 p-6 space-y-4 shadow-sm">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded-lg bg-blue-500 text-white font-black flex items-center justify-center text-xs">
-                                        {idx + 1}
-                                    </div>
-                                    <span className="font-bold text-slate-700">빈칸 #{idx + 1} 선택지 설정</span>
-                                </div>
-
-                                <div className="grid grid-cols-3 gap-4">
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-emerald-500 uppercase tracking-widest block">Correct Answer (Option 1)</label>
-                                        <input
-                                            className="w-full p-3 rounded-xl border border-emerald-100 bg-emerald-50/30 font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-200"
-                                            value={part.options?.[0] || ""}
-                                            onChange={(e) => updateOption(li, pi, part, 0, e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-rose-400 uppercase tracking-widest block">Wrong Answer 1 (Option 2)</label>
-                                        <input
-                                            className="w-full p-3 rounded-xl border border-rose-100 bg-rose-50/30 font-bold text-sm outline-none focus:ring-2 focus:ring-rose-200"
-                                            value={part.options?.[1] || ""}
-                                            onChange={(e) => updateOption(li, pi, part, 1, e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-rose-400 uppercase tracking-widest block">Wrong Answer 2 (Option 3)</label>
-                                        <input
-                                            className="w-full p-3 rounded-xl border border-rose-100 bg-rose-50/30 font-bold text-sm outline-none focus:ring-2 focus:ring-rose-200"
-                                            value={part.options?.[2] || ""}
-                                            onChange={(e) => updateOption(li, pi, part, 2, e.target.value)}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="pt-2">
-                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Explanation</label>
-                                    <input
-                                        className="w-full p-3 rounded-xl border border-slate-100 bg-slate-50/50 text-sm font-medium"
-                                        placeholder="이 문항에 대한 해설을 입력하세요 (선택 사항)"
-                                        value={part.explanation || ""}
-                                        onChange={(e) => patchPart(li, pi, { ...part, explanation: e.target.value })}
-                                    />
-                                </div>
-                            </div>
-                        ))}
-
-                        {blanks.length === 0 && (
-                            <div className="p-10 text-center bg-white rounded-2xl border border-dashed border-slate-200">
-                                <div className="text-slate-400 font-bold italic truncate">분석된 빈칸(blank) 데이터가 없습니다. 본문 텍스트에 □ 또는 _ 기호가 포함되어 있는지 확인하세요.</div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
-        );
-    }
 
     // together.self 전용
-    function ensureTogetherSelf(data) {
-        const together = data.together || {};
-        const self = data.self || {};
-
-        return {
-            ...data,
-            together: {
-                numbers: Array.isArray(together.numbers) && together.numbers.length
-                    ? together.numbers
-                    : [{ value: 1, labelEnabled: false }, { value: 2, labelEnabled: false }, { value: 3, labelEnabled: false }]
-            },
-            self: {
-                answers: Array.isArray(self.answers) && self.answers.length ? self.answers : ["", "", ""],
-                explanation: self.explanation || ""
-            }
-        };
-    }
-
-    function TogetherSelfEditor({ currentData, onChange }) {
-        const lines = Array.isArray(currentData?.lines) ? currentData.lines : [];
-        const isSelfStudy = !!currentData?.strategy?.options?.isSelfStudy;
-
-        // blank 파트만 한 번에 모으기(순서 유지)
-        const blanks = [];
-        lines.forEach((line, li) => {
-            (line.parts || []).forEach((part, pi) => {
-                if (part?.type === "blank") blanks.push({ li, pi, part });
-            });
-        });
-
-        // 편집 유틸
-        const patchPart = (li, pi, nextPart) => {
-            const nextLines = lines.map((l, idx) =>
-                idx !== li ? l : { ...l, parts: (l.parts || []).map((p, j) => (j !== pi ? p : nextPart)) }
-            );
-            onChange({ ...currentData, lines: nextLines });
-        };
-
-        const getBlankAnswer = (part) => {
-            const options = Array.isArray(part.options) ? part.options : [];
-            const idx = (parseInt(part.correctIndex, 10) || 1) - 1;
-            return options[idx] ?? "";
-        };
-
-        const setBlankAnswer = (li, pi, part, value) => {
-            // 엔진(base.js)이 options+correctIndex로 답을 뽑으니까 그 규칙 그대로 맞춤
-            patchPart(li, pi, { ...part, options: [value], correctIndex: 1 });
-        };
-
-        const toggleLabel = (li, pi, part) => {
-            patchPart(li, pi, { ...part, labelEnabled: !part.labelEnabled });
-        };
-
-        // 해설 1개만: 첫 번째 blank에만 저장
-        const firstBlank = blanks[0];
-        const singleExplanation =
-            firstBlank?.part?.explanation || "";
-
-        const setSingleExplanation = (value) => {
-            if (!firstBlank) return;
-            patchPart(firstBlank.li, firstBlank.pi, { ...firstBlank.part, explanation: value });
-        };
-
-        return (
-            <div className="space-y-8">
-                {/* Together Section */}
-                <div className="p-8 bg-amber-50/60 border border-amber-200 rounded-[2.5rem] space-y-5">
-                    <div>
-                        <div className="text-xs font-black uppercase tracking-widest text-amber-600">
-                            Together Section
-                        </div>
-                        <div className="text-sm font-bold text-slate-600 mt-1">
-                            각 딱지(blank)의 숫자 값 + 라벨 표시 여부
-                        </div>
-                        <div className="text-xs font-bold text-slate-400 mt-1">
-                            (다운로드는 아래 “콘텐츠 다운로드” 버튼을 누르면 반영됨)
-                        </div>
-                    </div>
-
-                    <div className="space-y-3">
-                        {blanks.map(({ li, pi, part }, idx) => (
-                            <div
-                                key={`${li}-${pi}`}
-                                className="flex items-center gap-3 bg-white rounded-2xl border border-amber-100 p-4"
-                            >
-                                <div className="w-10 h-10 rounded-xl bg-amber-500 text-white font-black flex items-center justify-center">
-                                    {idx + 1}
-                                </div>
-
-                                <div className="flex-1 grid grid-cols-3 gap-3 items-center">
-                                    <div className="col-span-2">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">
-                                            Number Value
-                                        </label>
-                                        <input
-                                            type="number"
-                                            className="w-full p-3 rounded-xl border border-slate-200 font-bold"
-                                            value={getBlankAnswer(part)}
-                                            onChange={(e) => setBlankAnswer(li, pi, part, e.target.value)}
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">
-                                            Label
-                                        </label>
-                                        <button
-                                            onClick={() => toggleLabel(li, pi, part)}
-                                            className={`w-full py-3 rounded-xl font-black text-xs transition-all ${part.labelEnabled
-                                                ? "bg-slate-900 text-white"
-                                                : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                                                }`}
-                                        >
-                                            {part.labelEnabled ? "ON" : "OFF"}
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-
-                        {blanks.length === 0 && (
-                            <div className="p-6 bg-white rounded-2xl border border-amber-100 text-slate-400 font-bold">
-                                blank(딱지) 파트가 없습니다. lines/parts 구조를 확인하세요.
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {/* Self Section */}
-                <div className="p-8 bg-indigo-50/60 border border-indigo-200 rounded-[2.5rem] space-y-6">
-                    <div>
-                        <div className="text-xs font-black uppercase tracking-widest text-indigo-600">
-                            Self Section
-                        </div>
-                        <div className="text-sm font-bold text-slate-600 mt-1">
-                            빈칸 정답 + 해설(1개)
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        {blanks.map(({ li, pi, part }, idx) => (
-                            <div key={`self-${li}-${pi}`} className="bg-white rounded-2xl border border-indigo-100 p-4">
-                                <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2">
-                                    Blank Answer #{idx + 1}
-                                </label>
-                                <input
-                                    className="w-full p-3 rounded-xl border border-slate-200 font-bold"
-                                    value={getBlankAnswer(part)}
-                                    onChange={(e) => setBlankAnswer(li, pi, part, e.target.value)}
-                                />
-                            </div>
-                        ))}
-                    </div>
-
-                    <div className="bg-white rounded-2xl border border-indigo-100 p-4">
-                        <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2">
-                            Explanation (1개) — 첫 번째 빈칸에 저장
-                        </label>
-                        <textarea
-                            rows={3}
-                            className="w-full p-3 rounded-xl border border-slate-200 font-medium resize-none"
-                            value={singleExplanation}
-                            onChange={(e) => setSingleExplanation(e.target.value)}
-                        />
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-
-    function GenericFallbackEditor({ currentData }) {
-        return (
-            <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-200 text-slate-500">
-                <div className="font-black mb-2">이 타입은 전용 에디터가 없어요.</div>
-                <pre className="text-xs overflow-auto">{JSON.stringify(currentData, null, 2)}</pre>
-            </div>
-        );
-    }
 
     const onClickLabelZip = async (pageData) => {
         // TODO: pageData.together.numbers 중 labelEnabled === true 인 것들로
@@ -955,10 +594,15 @@ const App = () => {
             const cImg = buildPages[activePageIndex]?.image || "";
             const isSelfStudy = headerType === "스스로 풀기";
 
+            // [FIX] If figure_bounds are present and not empty, set hasImage to true automatically
+            const aiHasImage = currentData?.figure_bounds &&
+                Array.isArray(currentData.figure_bounds) &&
+                currentData.figure_bounds.some(v => v !== 0);
+
             customConfig = buildDraftInputConfig({
                 typeKey: currentType,
                 inputKind,
-                hasImage,
+                hasImage: hasImage || aiHasImage, // Use either UI toggle or AI detection
                 headerUrl: hUrl,
                 contentImageUrl: cImg,
                 figureBounds: currentData?.figure_bounds,
@@ -966,6 +610,7 @@ const App = () => {
                 isTogether,
                 isSelfStudy // [NEW]
             });
+            console.log("[onClickZip] Custom Config generated:", customConfig);
         }
 
         if (!finalTemplateId) {
@@ -986,6 +631,8 @@ const App = () => {
             customConfig
         });
     };
+
+    console.log("customconfig", customConfig)
 
     const builderImageInputRef = useRef(null);
     const templateZipInputRef = useRef(null);
@@ -1064,11 +711,14 @@ const App = () => {
     const renderMathToHTML = (text, typeKey, pageTitle) => {
         if (!text) return null;
 
+        // [NEW] 수식 기호 보호 및 $ 변환 처리
+        const sanitizedText = sanitizeLaTeX(text);
+
         // 스스로 풀기 여부 확인
         const isSelfStudy = typeKey === "together.self" && pageTitle.includes('스스로');
         const isTogether = typeKey === "together.self" && pageTitle.includes('함께');
 
-        const parts = text.split(/(\\\(.*?\\\)|□)/g);
+        const parts = sanitizedText.split(/(\\\([\s\S]*?\\\)|□)/g);
         return parts.map((part, i) => {
             if (!part) return null;
 
@@ -1112,11 +762,13 @@ const App = () => {
             const newPages = [];
 
             for (let imgIdx = 0; imgIdx < analysisImages.length; imgIdx++) {
-                const img = analysisImages[imgIdx];
+                const imageFile = analysisImages[imgIdx].file;
+                const contentImageUrl = URL.createObjectURL(imageFile); // Create URL for cropping/display
+                console.log(`[runAnalysis] Page ${imgIdx + 1} Image URL:`, contentImageUrl);
                 const base64 = await new Promise(r => {
                     const reader = new FileReader();
                     reader.onload = () => r(reader.result.split(',')[1]);
-                    reader.readAsDataURL(img.file);
+                    reader.readAsDataURL(imageFile);
                 });
 
                 const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
@@ -1382,7 +1034,10 @@ const App = () => {
                                 body: chunk.map(q => q.passage).join('\n'),
                                 answers: chunk.flatMap(q => Array.isArray(q.answer) ? q.answer : [q.answer]),
                                 description: [{ text: generateLogicText(type, sec.subtype, chunk.flatMap(q => Array.isArray(q.answer) ? q.answer : [q.answer])) }],
-                                subQuestions: chunk, lines: chunkLines
+                                subQuestions: chunk, lines: chunkLines,
+                                figure_bounds: sec.figure_bounds || [0, 0, 0, 0],
+                                figure_alt: sec.figure_alt || "",
+                                contentImageUrl: contentImageUrl // [FIX] Added for zipProcessor
                             });
                         }
                     } else {
@@ -1393,7 +1048,10 @@ const App = () => {
                             content: finalInstruction, guide: guide,
                             body: body, answers: finalAnswers,
                             description: [{ text: generateLogicText(type, sec.subtype, finalAnswers) }],
-                            subQuestions: updatedSubQs, lines: lines
+                            subQuestions: updatedSubQs, lines: lines,
+                            figure_bounds: sec.figure_bounds || [0, 0, 0, 0],
+                            figure_alt: sec.figure_alt || "",
+                            contentImageUrl: contentImageUrl // [FIX] Added for zipProcessor
                         });
                     }
                 });
@@ -2302,3 +1960,359 @@ const App = () => {
 };
 
 export default App;
+
+// --- Sub Components (Moved outside for Stability/Performance) ---
+
+function ensureSubQuestions(data) {
+    const sub = Array.isArray(data.subQuestions) ? data.subQuestions : [];
+    return sub.length ? sub : [{ label: "1", passage: "", answer: "", explanation: "" }];
+}
+
+function SubQuestionsEditor({ currentData, onChange }) {
+    const subQuestions = ensureSubQuestions(currentData);
+
+    return (
+        <div className="space-y-6">
+            {subQuestions.map((item, i) => (
+                <div key={i} className="p-8 bg-white border border-slate-100 rounded-[2.5rem] space-y-6 shadow-sm">
+                    <div className="flex items-start gap-5">
+                        <span className="w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center font-bold text-sm">
+                            {item.label || i + 1}
+                        </span>
+                        <div className="flex-1 space-y-2">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase">Question / Passage</label>
+                            <textarea
+                                rows={2}
+                                className="w-full p-3 bg-slate-50 rounded-xl text-sm font-medium outline-none resize-none"
+                                value={item.passage || ""}
+                                onChange={(e) => {
+                                    const next = [...subQuestions];
+                                    next[i] = { ...next[i], passage: e.target.value };
+                                    onChange({ ...currentData, subQuestions: next });
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-6">
+                        <div>
+                            <label className="text-[10px] font-bold text-emerald-500 uppercase mb-2 block">Correct Answer</label>
+                            <input
+                                className="w-full p-3 bg-emerald-50/50 border border-emerald-100 rounded-xl text-sm font-bold text-emerald-700 outline-none"
+                                value={item.answer || ""}
+                                onChange={(e) => {
+                                    const next = [...subQuestions];
+                                    next[i] = { ...next[i], answer: e.target.value };
+                                    onChange({ ...currentData, subQuestions: next });
+                                }}
+                            />
+                        </div>
+
+                        <div>
+                            <label className="text-[10px] font-bold text-indigo-400 uppercase mb-2 block">Explanation</label>
+                            <input
+                                className="w-full p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl text-sm font-bold text-indigo-700 outline-none"
+                                value={item.explanation || ""}
+                                onChange={(e) => {
+                                    const next = [...subQuestions];
+                                    next[i] = { ...next[i], explanation: e.target.value };
+                                    onChange({ ...currentData, subQuestions: next });
+                                }}
+                            />
+                        </div>
+                    </div>
+                </div>
+            ))}
+
+            <button
+                onClick={() =>
+                    onChange({
+                        ...currentData,
+                        subQuestions: [
+                            ...subQuestions,
+                            { label: String(subQuestions.length + 1), passage: "", answer: "", explanation: "" }
+                        ]
+                    })
+                }
+                className="w-full py-4 rounded-[2rem] bg-slate-100 hover:bg-slate-200 font-black text-sm text-slate-600"
+            >
+                + Add Sub Question
+            </button>
+        </div>
+    );
+}
+
+function MathInputEditor({ currentData, onChange }) {
+    return <SubQuestionsEditor currentData={currentData} onChange={onChange} />;
+}
+
+function TogetherSelectEditor({ currentData, onChange }) {
+    const lines = Array.isArray(currentData?.lines) ? currentData.lines : [];
+
+    // blank 파트만 한 번에 모으기(순서 유지)
+    const blanks = [];
+    lines.forEach((line, li) => {
+        (line.parts || []).forEach((part, pi) => {
+            if (part?.type === "blank") blanks.push({ li, pi, part });
+        });
+    });
+
+    const patchPart = (li, pi, nextPart) => {
+        const nextLines = lines.map((l, idx) =>
+            idx !== li ? l : { ...l, parts: (l.parts || []).map((p, j) => (j !== pi ? p : nextPart)) }
+        );
+        onChange({ ...currentData, lines: nextLines });
+    };
+
+    const updateOption = (li, pi, part, optIdx, value) => {
+        const nextOptions = [...(part.options || ["", "", ""])];
+        nextOptions[optIdx] = value;
+        patchPart(li, pi, { ...part, options: nextOptions });
+    };
+
+    return (
+        <div className="space-y-8">
+            <div className="p-8 bg-blue-50/60 border border-blue-200 rounded-[2.5rem] space-y-5">
+                <div>
+                    <div className="text-xs font-black uppercase tracking-widest text-blue-600">Together Select Section</div>
+                    <div className="text-sm font-bold text-slate-600 mt-1">각 빈칸의 정답과 오답 선택지를 설정하세요.</div>
+                </div>
+
+                <div className="space-y-4">
+                    {blanks.map(({ li, pi, part }, idx) => (
+                        <div key={`${li}-${pi}`} className="bg-white rounded-2xl border border-blue-100 p-6 space-y-4 shadow-sm">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-blue-500 text-white font-black flex items-center justify-center text-xs">
+                                    {idx + 1}
+                                </div>
+                                <span className="font-bold text-slate-700">빈칸 #{idx + 1} 선택지 설정</span>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-emerald-500 uppercase tracking-widest block">Correct Answer (Option 1)</label>
+                                    <input
+                                        className="w-full p-3 rounded-xl border border-emerald-100 bg-emerald-50/30 font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-200"
+                                        value={part.options?.[0] || ""}
+                                        onChange={(e) => updateOption(li, pi, part, 0, e.target.value)}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-rose-400 uppercase tracking-widest block">Wrong Answer 1 (Option 2)</label>
+                                    <input
+                                        className="w-full p-3 rounded-xl border border-rose-100 bg-rose-50/30 font-bold text-sm outline-none focus:ring-2 focus:ring-rose-200"
+                                        value={part.options?.[1] || ""}
+                                        onChange={(e) => updateOption(li, pi, part, 1, e.target.value)}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-rose-400 uppercase tracking-widest block">Wrong Answer 2 (Option 3)</label>
+                                    <input
+                                        className="w-full p-3 rounded-xl border border-rose-100 bg-rose-50/30 font-bold text-sm outline-none focus:ring-2 focus:ring-rose-200"
+                                        value={part.options?.[2] || ""}
+                                        onChange={(e) => updateOption(li, pi, part, 2, e.target.value)}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="pt-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Explanation</label>
+                                <input
+                                    className="w-full p-3 rounded-xl border border-slate-100 bg-slate-50/50 text-sm font-medium"
+                                    placeholder="이 문항에 대한 해설을 입력하세요 (선택 사항)"
+                                    value={part.explanation || ""}
+                                    onChange={(e) => patchPart(li, pi, { ...part, explanation: e.target.value })}
+                                />
+                            </div>
+                        </div>
+                    ))}
+
+                    {blanks.length === 0 && (
+                        <div className="p-10 text-center bg-white rounded-2xl border border-dashed border-slate-200">
+                            <div className="text-slate-400 font-bold italic truncate">분석된 빈칸(blank) 데이터가 없습니다. 본문 텍스트에 □ 또는 _ 기호가 포함되어 있는지 확인하세요.</div>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function ensureTogetherSelf(data) {
+    const together = data.together || {};
+    const self = data.self || {};
+
+    return {
+        ...data,
+        together: {
+            numbers: Array.isArray(together.numbers) && together.numbers.length
+                ? together.numbers
+                : [{ value: 1, labelEnabled: false }, { value: 2, labelEnabled: false }, { value: 3, labelEnabled: false }]
+        },
+        self: {
+            answers: Array.isArray(self.answers) && self.answers.length ? self.answers : ["", "", ""],
+            explanation: self.explanation || ""
+        }
+    };
+}
+
+function TogetherSelfEditor({ currentData, onChange, onClickLabelZip }) {
+    const lines = Array.isArray(currentData?.lines) ? currentData.lines : [];
+    const isSelfStudy = !!currentData?.strategy?.options?.isSelfStudy;
+
+    // blank 파트만 한 번에 모으기(순서 유지)
+    const blanks = [];
+    lines.forEach((line, li) => {
+        (line.parts || []).forEach((part, pi) => {
+            if (part?.type === "blank") blanks.push({ li, pi, part });
+        });
+    });
+
+    // 편집 유틸
+    const patchPart = (li, pi, nextPart) => {
+        const nextLines = lines.map((l, idx) =>
+            idx !== li ? l : { ...l, parts: (l.parts || []).map((p, j) => (j !== pi ? p : nextPart)) }
+        );
+        onChange({ ...currentData, lines: nextLines });
+    };
+
+    const getBlankAnswer = (part) => {
+        const options = Array.isArray(part.options) ? part.options : [];
+        const idx = (parseInt(part.correctIndex, 10) || 1) - 1;
+        return options[idx] ?? "";
+    };
+
+    const setBlankAnswer = (li, pi, part, value) => {
+        // 엔진(base.js)이 options+correctIndex로 답을 뽑으니까 그 규칙 그대로 맞춤
+        patchPart(li, pi, { ...part, options: [value], correctIndex: 1 });
+    };
+
+    const toggleLabel = (li, pi, part) => {
+        patchPart(li, pi, { ...part, labelEnabled: !part.labelEnabled });
+    };
+
+    // 해설 1개만: 첫 번째 blank에만 저장
+    const firstBlank = blanks[0];
+    const singleExplanation =
+        firstBlank?.part?.explanation || "";
+
+    const setSingleExplanation = (value) => {
+        if (!firstBlank) return;
+        patchPart(firstBlank.li, firstBlank.pi, { ...firstBlank.part, explanation: value });
+    };
+
+    return (
+        <div className="space-y-8">
+            {/* Together Section */}
+            <div className="p-8 bg-amber-50/60 border border-amber-200 rounded-[2.5rem] space-y-5">
+                <div>
+                    <div className="text-xs font-black uppercase tracking-widest text-amber-600">
+                        Together Section
+                    </div>
+                    <div className="text-sm font-bold text-slate-600 mt-1">
+                        각 딱지(blank)의 숫자 값 + 라벨 표시 여부
+                    </div>
+                    <div className="text-xs font-bold text-slate-400 mt-1">
+                        (다운로드는 아래 “콘텐츠 다운로드” 버튼을 누르면 반영됨)
+                    </div>
+                </div>
+
+                <div className="space-y-3">
+                    {blanks.map(({ li, pi, part }, idx) => (
+                        <div
+                            key={`${li}-${pi}`}
+                            className="flex items-center gap-3 bg-white rounded-2xl border border-amber-100 p-4"
+                        >
+                            <div className="w-10 h-10 rounded-xl bg-amber-500 text-white font-black flex items-center justify-center">
+                                {idx + 1}
+                            </div>
+
+                            <div className="flex-1 grid grid-cols-3 gap-3 items-center">
+                                <div className="col-span-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">
+                                        Number Value
+                                    </label>
+                                    <input
+                                        type="number"
+                                        className="w-full p-3 rounded-xl border border-slate-200 font-bold"
+                                        value={getBlankAnswer(part)}
+                                        onChange={(e) => setBlankAnswer(li, pi, part, e.target.value)}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">
+                                        Label
+                                    </label>
+                                    <button
+                                        onClick={() => toggleLabel(li, pi, part)}
+                                        className={`w-full py-3 rounded-xl font-black text-xs transition-all ${part.labelEnabled
+                                            ? "bg-slate-900 text-white"
+                                            : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                                            }`}
+                                    >
+                                        {part.labelEnabled ? "ON" : "OFF"}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+
+                    {blanks.length === 0 && (
+                        <div className="p-6 bg-white rounded-2xl border border-amber-100 text-slate-400 font-bold">
+                            blank(딱지) 파트가 없습니다. lines/parts 구조를 확인하세요.
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Self Section */}
+            <div className="p-8 bg-indigo-50/60 border border-indigo-200 rounded-[2.5rem] space-y-6">
+                <div>
+                    <div className="text-xs font-black uppercase tracking-widest text-indigo-600">
+                        Self Section
+                    </div>
+                    <div className="text-sm font-bold text-slate-600 mt-1">
+                        빈칸 정답 + 해설(1개)
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                    {blanks.map(({ li, pi, part }, idx) => (
+                        <div key={`self-${li}-${pi}`} className="bg-white rounded-2xl border border-indigo-100 p-4">
+                            <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2">
+                                Blank Answer #{idx + 1}
+                            </label>
+                            <input
+                                className="w-full p-3 rounded-xl border border-slate-200 font-bold"
+                                value={getBlankAnswer(part)}
+                                onChange={(e) => setBlankAnswer(li, pi, part, e.target.value)}
+                            />
+                        </div>
+                    ))}
+                </div>
+
+                <div className="bg-white rounded-2xl border border-indigo-100 p-4">
+                    <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2">
+                        Explanation (1개) — 첫 번째 빈칸에 저장
+                    </label>
+                    <textarea
+                        rows={3}
+                        className="w-full p-3 rounded-xl border border-slate-200 font-medium resize-none"
+                        value={singleExplanation}
+                        onChange={(e) => setSingleExplanation(e.target.value)}
+                    />
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function GenericFallbackEditor({ currentData }) {
+    return (
+        <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-200 text-slate-500">
+            <div className="font-black mb-2">이 타입은 전용 에디터가 없어요.</div>
+            <pre className="text-xs overflow-auto">{JSON.stringify(currentData, null, 2)}</pre>
+        </div>
+    );
+}
