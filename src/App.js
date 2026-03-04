@@ -53,7 +53,6 @@ document.body.style.fontFamily = "Pretendard, sans-serif";
 const ASSETS = {
     TITLES: {
         '발견하기': 'https://i.imgur.com/t5oUrkW.png',
-        '개념': 'https://i.imgur.com/cjOaHRg.png',
         '문제': 'https://i.imgur.com/gH2J7p7.png',
         '함께 풀기': 'https://i.imgur.com/qnlGWhM.png',
         '스스로 풀기': 'https://i.imgur.com/LVk2NIU.png',
@@ -99,8 +98,8 @@ const KIM_HWA_KYUNG_PROMPT = `
   Analyze input textbook image(s) and split content into logical sections for a Storyboard.
   
   **Splitting Rules:**
-  - Detect visual separators like "개념", "문제 1", "함께 풀기", "함께 풀기 + 스스로 풀기".
-  - **Type:** '문제', '함께 풀기', '함께 풀기 + 스스로 풀기', '개념'
+  - Detect visual separators like "문제 1", "함께 풀기", "함께 풀기 + 스스로 풀기".
+  - **Type:** '문제', '함께 풀기', '함께 풀기 + 스스로 풀기'
   - **Body Text:** Use LaTeX \\( ... \\). Use \\n to separate distinct questions or sentences.
   - **답이 스토리보드에 포함되지 않도록 주의** 
 
@@ -160,9 +159,14 @@ JSON을 생성하기 전, 다음 항목을 먼저 확인하여 내부적으로 �
 반드시 아래 규칙에 따라 'typeKey'를 결정하라:
 - 이미지에 '함께 풀기'와 '스스로 풀기' 이미지가 모두 포함된 경우([함께(O) + 스스로(O)]): together.self (복합형)
 - 이미지에 '함께 풀기' 이미지만 포함된 경우([함께(O) + 스스로(X)]): together.select (함께 풀기 전용)
-- 이미지에 '스스로 풀기' 이미지만 포함된 경우([함께(X) + 스스로(O)]): together.self 
+- 이미지에 '스스로 풀기' 이미지만 포함된 경우([함께(X) + 스스로(O)]): together.self (복합형)
 - 이미지에 '함께 풀기'와 '스스로 풀기' 이미지가 모두 포함되지 않은 경우: question.mathinput 유형
 
+### STEP 3: 스스로 풀기 정답 추론 특수 규칙 (Crucial for together.self)
+'스스로 풀기'의 빈칸(밑줄) 정답을 추출할 때는 절대 임의로 계산 방식을 생략하거나 건너뛰지 마라. 반드시 짝꿍인 '함께 풀기'의 풀이 과정을 1:1 템플릿으로 사용하여 아래의 논리적 흐름(Chain of Thought)을 따라라:
+1. **패턴 매핑 (Pattern Mapping):** '함께 풀기'의 풀이 과정 각 줄에서 어떤 공식, 식의 변형, 연산 논리가 쓰였는지 파악하라.
+2. **숫자 치환 (Substitution):** '스스로 풀기'에 주어진 문제의 숫자와 조건을 '함께 풀기'와 완전히 동일한 위치에 대입하라. 
+3. **중간 과정 도출 (Step-by-Step):** 최종 정답만 구하지 말고, '함께 풀기'의 구조상 중간에 위치한 빈칸(밑줄 등)에 들어가야 할 정확한 식이나 계산값(예: 약분 전의 분수형태, 근호 안의 식 등)을 도출하여 정답으로 설정하라.
 
 **공통 규칙:**
 - 모든 수식은 반드시 '\\\\( ... \\\\)' 형태로 감싸세요. (백슬래시 2개)
@@ -202,7 +206,24 @@ JSON 구조 예시:
 // [NEW] Text to Lines/Parts Parser
 const parseTextToLines = (text, answers = []) => {
     if (!text) return [];
-    const lines = text.split('\n');
+
+    // [MODIFIED] 수식 블록 내부에 □ 또는 _ 가 있는 경우 미리 분리하여 데이터 파편화 방지
+    let processedText = text;
+    processedText = processedText.replace(/(\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\])/g, (match) => {
+        const content = match.substring(2, match.length - 2);
+        if (content.includes('□') || content.includes('_')) {
+            const startDelim = match.startsWith('\\(') ? '\\(' : '\\[';
+            const endDelim = match.startsWith('\\(') ? '\\)' : '\\]';
+
+            return content.split(/(□|_)/g).map(part => {
+                if (part === '□' || part === '_') return part;
+                return part.trim() ? `${startDelim}${part}${endDelim}` : "";
+            }).join('');
+        }
+        return match;
+    });
+
+    const lines = processedText.split('\n');
     let globalBlankIdx = 0;
 
     return lines.map(lineText => {
@@ -217,7 +238,7 @@ const parseTextToLines = (text, answers = []) => {
                     type: 'blank',
                     options: [ans],
                     correctIndex: 1,
-                    labelEnabled: false, // [FIX] Show only in preview, hide in ZIP
+                    labelEnabled: false,
                     labelText: ""
                 };
             }
@@ -232,16 +253,14 @@ const generateLogicText = (type, subtype, answers) => {
     const hasAnswer = answers && answers.length > 0;
     const answerSection = hasAnswer ? `[정답 설정]\n- 정답: ${answers.join(', ')}\n\n` : '';
 
-    // 1. 개념 학습
-    if (type === '개념') {
-        return `[개념 학습]\n1. 단순 열람 모드.\n2. 페이지 넘김 기능 활성화.`;
-    }
 
     // 2. 함께 풀기 + 스스로 풀기 (복합 유형)
     if (type === '함께 풀기 + 스스로 풀기') {
-        const baseText = subtype === 'together_part' || subtype === '복합형'
+        const isTogether = subtype === 'together_part' || subtype === '복합형' || subtype === '함께풀기';
+
+        const baseText = isTogether
             ? `[복합형: 함께 풀기]\n1. 하늘색 네모(□) 클릭 시 라벨이 사라지며 정답 텍스트 노출.\n2. [확인] 버튼 없음. [저장] 버튼 클릭 시 학습 완료 처리.\n3. 정오 판별 로직 제외.`
-            : `[복합형: 스스로 풀기]\n1. 빈칸 클릭 시 수식 입력기 호출.\n2. [확인] 클릭 시 정오답 판별.\n3. 정답 시: 파란색(#0000FF) 표시.\n4. 오답 시: 붉은색 노출 및 재도전 유도.`;
+            : `[복합형: 함께 풀기]\n1. 하늘색 네모(□) 클릭 시 라벨이 사라지며 정답 텍스트 노출.\n2. [확인] 버튼 없음. [저장] 버튼 클릭 시 학습 완료 처리.\n3. 정오 판별 로직 제외.`;
         return answerSection + baseText;
     }
 
@@ -272,18 +291,6 @@ const buildDraftInputConfig = ({
     // [NEW] JSON 확인용 로그
     console.log("[buildDraftInputConfig] Input:", { typeKey, isTogether, isSelfStudy });
 
-    // 1. Concept Type
-    if (typeKey === TYPE_KEYS.CONCEPT) {
-        return {
-            typeKey: TYPE_KEYS.CONCEPT,
-            baseTemplateTypeKey: TYPE_KEYS.CONCEPT,
-            manifest: {},
-            strategy: {
-                name: 'concept_v1',
-                options: { hasImage, contentImageUrl, figure_bounds, figure_alt }
-            }
-        };
-    }
 
     // 2. Together + Self Type [FIX]
     if (typeKey === TYPE_KEYS.TOGETHER_SELF) {
@@ -344,10 +351,6 @@ const App = () => {
         {
             typeKey: TYPE_KEYS.TOGETHER_SELECT,
             label: "함께 풀기 > 선택형",
-        },
-        {
-            typeKey: "concept",
-            label: "개념",
         },
         {
             typeKey: TYPE_KEYS.TOGETHER_SELF,
@@ -442,7 +445,7 @@ const App = () => {
         const tKey = activeData.typeKey || "";
         if (tKey.startsWith("together")) {
             detectedFamily = "together";
-        } else if (tKey.startsWith("question") || tKey === TYPE_KEYS.CONCEPT) {
+        } else if (tKey.startsWith("question")) {
             detectedFamily = "input";
         } else if (activeData.lines) {
             detectedFamily = "together";
@@ -460,7 +463,6 @@ const App = () => {
         if (typeStr.includes("함께 풀기 + 스스로 풀기")) detectedTypeKey = TYPE_KEYS.TOGETHER_SELF;
         else if (typeStr.includes("함께 풀기")) detectedTypeKey = TYPE_KEYS.TOGETHER_SELECT;
         else if (typeStr.includes("문제") || typeStr.includes("예제")) detectedTypeKey = TYPE_KEYS.QUESTION_MATHINPUT;
-        else if (typeStr.includes("개념")) detectedTypeKey = TYPE_KEYS.CONCEPT;
     }
 
     // 3️⃣ 기존 템플릿 존재 여부
@@ -585,12 +587,10 @@ const App = () => {
             const typeStr = currentData.type;
             if (typeStr.includes("함께 풀기 + 스스로 풀기")) currentType = TYPE_KEYS.TOGETHER_SELF;
             else if (typeStr.includes("함께 풀기")) currentType = TYPE_KEYS.TOGETHER_SELECT;
-            else if (typeStr.includes("개념")) currentType = TYPE_KEYS.CONCEPT;
             else currentType = TYPE_KEYS.QUESTION_MATHINPUT;
         }
 
         // 2. 기본 플래그 설정
-        const isConcept = currentType === TYPE_KEYS.CONCEPT;
         const isTogetherSelf = currentType === TYPE_KEYS.TOGETHER_SELF;
         const isTogether = isTogetherSelf || (currentType?.startsWith("together") || false);
 
@@ -603,8 +603,7 @@ const App = () => {
             finalTemplateId = matchingDetectedTemplates[0].id;
         } else {
             let baseTypeKey = TYPE_KEYS.QUESTION_MATHINPUT;
-            if (isConcept) baseTypeKey = TYPE_KEYS.CONCEPT;
-            else if (isTogetherSelf) baseTypeKey = TYPE_KEYS.TOGETHER_SELF;
+            if (isTogetherSelf) baseTypeKey = TYPE_KEYS.TOGETHER_SELF;
             else if (isTogether) baseTypeKey = TYPE_KEYS.TOGETHER_SELECT;
 
             const fallback = templates.find(t => t.typeKey === baseTypeKey);
@@ -616,8 +615,7 @@ const App = () => {
         // EXACT 모드가 아닐 때는 사용자가 편집한 내용을 덮어씌워야 하므로 Config를 생성함
         if (detectionStatus !== "EXACT" || selectedTypeKey) {
             let headerType = "문제";
-            if (isConcept) headerType = "개념";
-            else if (isTogetherSelf) {
+            if (isTogetherSelf) {
                 // [FIX] Determine header type based on title (함께/스스로)
                 const title = currentData?.title || "";
                 if (title.includes("스스로")) headerType = "스스로 풀기";
@@ -769,26 +767,41 @@ const App = () => {
     const renderMathToHTML = (text, typeKey, pageTitle, answers = []) => {
         if (!text) return null;
 
-        // [NEW] 수식 기호 보호 및 $ 변환 처리
         const sanitizedText = sanitizeLaTeX(text);
 
         // 스스로 풀기 여부 확인
         const isSelfStudy = typeKey === TYPE_KEYS.TOGETHER_SELF && (pageTitle?.includes('스스로') || false);
-        // Together.select 혹은 Together.Self (스스로 가 아니면 기본 함께로 간주)
         const isTogether = typeKey === TYPE_KEYS.TOGETHER_SELECT || (typeKey === TYPE_KEYS.TOGETHER_SELF && !isSelfStudy);
 
-        const parts = sanitizedText.split(/(\\\([\s\S]*?\\\)|□)/g);
+        // [MODIFIED] 수식 블록 내부에 □ 또는 _ 가 있는 경우 미리 분리하여 파편화 방지
+        let processedText = sanitizedText;
+        processedText = processedText.replace(/(\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\])/g, (match) => {
+            const content = match.substring(2, match.length - 2);
+            if (content.includes('□') || content.includes('_')) {
+                const startDelim = match.startsWith('\\(') ? '\\(' : '\\[';
+                const endDelim = match.startsWith('\\(') ? '\\)' : '\\]';
+
+                return content.split(/(□|_)/g).map(part => {
+                    if (part === '□' || part === '_') return part;
+                    return part.trim() ? `${startDelim}${part}${endDelim}` : "";
+                }).join('');
+            }
+            return match;
+        });
+
+        const parts = processedText.split(/(\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]|□|_)/g);
         let blankIdx = 0;
 
         return parts.map((part, i) => {
             if (!part) return null;
 
-            if (part.startsWith('\\(')) {
-                const latex = part.replace(/^\\\(|\\\)$/g, '');
-                // [REVERT] 안정적인 PNG 방식으로 복구 (DPI를 높여 선명도 유지)
+            if (part.startsWith('\\(') || part.startsWith('\\[')) {
+                const latex = part.replace(/^\\\(|^\\\[|\\\)$|\\\]$/g, '').trim();
+                if (!latex) return null; // 빈 수식은 렌더링 안 함
+
                 const url = `https://latex.codecogs.com/png.latex?\\dpi{150}\\bg_white ${encodeURIComponent(latex)}`;
                 return <img key={i} src={url} alt="math" className="inline-block align-middle mx-1 h-5" />;
-            } else if (part === '□') {
+            } else if (part === '□' || part === '_') {
                 blankIdx++;
                 const currentBlankIdx = blankIdx;
                 const answer = answers[currentBlankIdx - 1] || "";
@@ -799,11 +812,10 @@ const App = () => {
                             className={`inline-flex items-center justify-center rounded-md border-2 transition-all relative ${isSelfStudy
                                 ? 'w-16 h-10 bg-white border-slate-300 shadow-sm'
                                 : isTogether
-                                    ? 'w-10 h-10 bg-[#00bcf1] border-[#00bcf1] shadow-[0_4px_0_0_#0097c3]' // 찰흙/딱지 느낌의 그림자 추가
+                                    ? 'w-10 h-10 bg-[#00bcf1] border-[#00bcf1] shadow-[0_4px_0_0_#0097c3]'
                                     : 'w-10 h-10 bg-[#00bcf1] border-[#00bcf1]'
                                 }`}
                         >
-                            {/* Label OVERLAID on top-left of the box */}
                             {isTogether && (
                                 <span className="absolute -top-2.5 -left-2.5 w-6 h-6 bg-slate-900 text-white rounded-full flex items-center justify-center text-[10px] font-black border-2 border-white shadow-sm z-10">
                                     {currentBlankIdx}
@@ -812,7 +824,6 @@ const App = () => {
 
                             {isSelfStudy && <img src="https://i.imgur.com/5LhWfL3.png" className="w-5 h-5 object-contain opacity-50" />}
 
-                            {/* Answer Preview */}
                             {answer && (
                                 <span className={`absolute inset-0 flex items-center justify-center font-bold text-[11px] pointer-events-none ${isSelfStudy ? 'text-blue-600' : 'text-white'}`}>
                                     {answer.length > 5 ? answer.substring(0, 4) + '..' : answer}
@@ -942,7 +953,7 @@ const App = () => {
                         // 수식 블록 내의 = 뒤 내용을 찾아서 □로 바꾸고 extracted에 저장
                         body = body.replace(/=\s*([^=\n]+?)(?=\s*\\\)|\s*\n|\s*=|$)/g, (match, p1) => {
                             extracted.push(p1.trim());
-                            return '= \\) □ \\('; // 수식을 닫고 □ 넣고 다시 열기
+                            return '=\\) □ \\('; // 수식을 닫고 □ 넣고 다시 열기
                         });
                         body = body.replace(/\\\( *\\\)/g, ''); // 빈 수식 블록 정리
                         if (extracted.length > 0) finalAnswers = extracted;
@@ -1606,7 +1617,7 @@ const App = () => {
                                             <label className="text-[10px] font-black uppercase text-indigo-300 tracking-widest block mb-6">Visual Preview</label>
                                             <div className="bg-white p-12 rounded-[2.5rem] border border-slate-200 shadow-sm relative min-h-[500px]">
                                                 {(() => {
-                                                    let titleImg = ASSETS.TITLES[page.type] || ASSETS.TITLES['개념'];
+                                                    let titleImg = ASSETS.TITLES[page.type] || ASSETS.TITLES['문제'];
                                                     if (page.type === '함께 풀기 + 스스로 풀기') {
                                                         if (page.title.includes('함께')) titleImg = ASSETS.TITLES['함께 풀기'];
                                                         else if (page.title.includes('스스로')) titleImg = ASSETS.TITLES['스스로 풀기'];
@@ -1615,8 +1626,12 @@ const App = () => {
                                                 })()}
 
                                                 <div className="space-y-2">
-                                                    <h4 className="text-2xl font-bold text-slate-800 leading-snug tracking-tight">{renderMathToHTML(page.content)}</h4>
-                                                    <h5 className="text-lg text-slate-400 leading-snug tracking-tight mb-6">{page.guide}</h5>
+                                                    <h4 className="text-2xl font-bold text-slate-800 leading-snug tracking-tight">
+                                                        {renderMathToHTML(page.content, page.typeKey || page.type, page.title)}
+                                                    </h4>
+                                                    <h5 className="text-lg text-slate-400 leading-snug tracking-tight mb-6">
+                                                        {renderMathToHTML(page.guide, page.typeKey || page.type, page.title)}
+                                                    </h5>
 
                                                     <div className="space-y-6 mt-8 pl-2 border-l-2 border-slate-100">
                                                         {/* 1. 질문 리스트 렌더링 */}
@@ -1702,8 +1717,7 @@ const App = () => {
                                                         const detectedTypeKey = page.typeKey || (
                                                             page.type.includes("함께 풀기 + 스스로 풀기") ? TYPE_KEYS.TOGETHER_SELF :
                                                                 page.type.includes("함께 풀기") ? TYPE_KEYS.TOGETHER_SELECT :
-                                                                    page.type.includes("개념") ? TYPE_KEYS.CONCEPT :
-                                                                        TYPE_KEYS.QUESTION_MATHINPUT
+                                                                    TYPE_KEYS.QUESTION_MATHINPUT
                                                         );
 
                                                         const isSelfStudy = (page.type || "").includes("스스로") || (page.title || "").includes("스스로");
@@ -1790,8 +1804,7 @@ const App = () => {
                                                                 '문제': TYPE_KEYS.QUESTION_MATHINPUT,
                                                                 '수식 입력형': TYPE_KEYS.QUESTION_MATHINPUT,
                                                                 '스스로 풀기': TYPE_KEYS.QUESTION_MATHINPUT,
-                                                                '연습 하기': TYPE_KEYS.QUESTION_MATHINPUT,
-                                                                '개념': TYPE_KEYS.CONCEPT
+                                                                '연습 하기': TYPE_KEYS.QUESTION_MATHINPUT
                                                             };
                                                             setSelectedTypeKey(typeMap[page.type] || TYPE_KEYS.QUESTION_MATHINPUT);
                                                         }
@@ -1820,165 +1833,164 @@ const App = () => {
                     )}
 
                     {activeTab === 'builder' && (
+                        <div className="flex gap-6 h-[90vh] overflow-hidden animate-in fade-in duration-500 pb-20">
 
-                        <div className="grid grid-cols-5 gap-6 animate-in fade-in duration-700">
-                            <div className="col-span-2 space-y-4 sticky top-0 self-start">
-
-
-                                <div className="bg-white p-8 rounded-[3.5rem] border border-slate-200 shadow-sm flex flex-col gap-6">
-                                    <div className="flex items-center justify-between px-2">
-                                        <label className="text-[15px] font-black text-slate-400 uppercase tracking-widest">미리보기</label>
-                                        <div className="flex gap-1">
-                                            {buildPages.map((p, idx) => (
-                                                <div key={p.id} className="relative group/btn">
-                                                    <button
-                                                        onClick={() => setActivePageIndex(idx)}
-                                                        className={`w-8 h-8 rounded-full font-bold text-[10px] transition-all flex items-center justify-center ${activePageIndex === idx ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
-                                                    >
-                                                        {p.id}
-                                                    </button>
-                                                    {buildPages.length > 1 && (
+                            {/* 좌측 col-span-2 영역 */}
+                            <div className="w-2/5 flex flex-col h-full overflow-hidden space-y-4">
+                                <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                                    <div className="bg-white p-8 rounded-[3.5rem] border border-slate-200 shadow-sm flex flex-col gap-6 overflow-hidden">
+                                        <div className="flex items-center justify-between px-2">
+                                            <label className="text-[15px] font-black text-slate-400 uppercase tracking-widest">미리보기</label>
+                                            <div className="flex gap-1">
+                                                {buildPages.map((p, idx) => (
+                                                    <div key={p.id} className="relative group/btn">
                                                         <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                removePage(idx);
-                                                            }}
-                                                            className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/btn:opacity-100 transition-opacity shadow-sm hover:bg-red-600"
+                                                            onClick={() => setActivePageIndex(idx)}
+                                                            className={`w-8 h-8 rounded-full font-bold text-[10px] transition-all flex items-center justify-center ${activePageIndex === idx ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
                                                         >
-                                                            <X size={8} strokeWidth={3} />
+                                                            {p.id}
                                                         </button>
-                                                    )}
+                                                        {buildPages.length > 1 && (
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    removePage(idx);
+                                                                }}
+                                                                className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/btn:opacity-100 transition-opacity shadow-sm hover:bg-red-600"
+                                                            >
+                                                                <X size={8} strokeWidth={3} />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                                {buildPages.length < 4 && (
+                                                    <button onClick={addPage} className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all flex items-center justify-center">
+                                                        <Plus size={12} />
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                        </div>
+                                        {/* Combined Preview Area */}
+                                        <div className="bg-slate-50/50 rounded-[2.5rem] border border-slate-100 my-1">
+                                            {activeData ? (
+                                                <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200/50">
+                                                    {(() => {
+                                                        const p = activeData;
+                                                        const pageTitle = p.title || "";
+                                                        const typeKey = p.typeKey || "";
+                                                        let titleImg = ASSETS.TITLES[p.type] || ASSETS.TITLES['문제'];
+
+                                                        if (typeKey === TYPE_KEYS.TOGETHER_SELF || typeKey === TYPE_KEYS.TOGETHER_SELECT) {
+                                                            if (pageTitle.includes('함께')) titleImg = ASSETS.TITLES['함께 풀기'];
+                                                            else if (pageTitle.includes('스스로')) titleImg = ASSETS.TITLES['스스로 풀기'];
+                                                            else if (p.type === '함께 풀기 + 스스로 풀기') {
+                                                                if (p.mainQuestion?.includes('함께')) titleImg = ASSETS.TITLES['함께 풀기'];
+                                                                else if (p.mainQuestion?.includes('스스로')) titleImg = ASSETS.TITLES['스스로 풀기'];
+                                                            }
+                                                        } else if (typeKey === TYPE_KEYS.QUESTION_MATHINPUT) {
+                                                            titleImg = ASSETS.TITLES['문제'];
+                                                        }
+
+                                                        return <img src={titleImg} className="h-6 mb-3 object-contain brightness-95" alt="Title" />;
+                                                    })()}
+                                                    <div className="space-y-2 mt-4">
+                                                        {(() => {
+                                                            const isTogetherType = activeData.typeKey?.startsWith("together") || activeData.type?.includes("함께");
+                                                            const title = activeData.title || "";
+                                                            const typeKey = activeData.typeKey;
+
+                                                            if (isTogetherType && activeData.lines && activeData.lines.length > 0) {
+                                                                let globalBlankCounter = 0;
+                                                                return (
+                                                                    <div className="space-y-5">
+                                                                        <h4 className="text-base font-bold text-slate-800 leading-tight">
+                                                                            {renderMathToHTML(activeData.mainQuestion, typeKey, title, activeData.answers)}
+                                                                        </h4>
+                                                                        <p className="text-xs text-slate-400 font-medium leading-relaxed mb-4">
+                                                                            {renderMathToHTML(activeData.guideText, typeKey, title)}
+                                                                        </p>
+                                                                        <div className="space-y-4 pt-4 border-t border-slate-100">
+                                                                            {activeData.lines.map((line, li) => (
+                                                                                <div key={li} className="flex gap-3 items-start">
+                                                                                    {line.label && <div className="text-[10px] font-black text-slate-400 mt-1 shrink-0">{line.label}</div>}
+                                                                                    <div className="flex-1 text-sm leading-relaxed text-slate-700">
+                                                                                        {(line.parts || []).map((part, pi) => {
+                                                                                            if (part.type === 'text') return renderMathToHTML(part.content, typeKey, title);
+                                                                                            if (part.type === 'blank') {
+                                                                                                globalBlankCounter++;
+                                                                                                const isSelf = title.includes("스스로");
+                                                                                                const ans = (part.options && part.options[0]) || "";
+                                                                                                return (
+                                                                                                    <span key={pi} className="inline-flex items-center align-middle mx-1 relative">
+                                                                                                        <span className={`inline-flex items-center justify-center rounded-md border-2 transition-all relative ${isSelf
+                                                                                                            ? 'w-16 h-10 bg-white border-slate-300 shadow-sm'
+                                                                                                            : 'w-10 h-10 bg-[#00bcf1] border-[#00bcf1] shadow-[0_4px_0_0_#0097c3]'}`}>
+                                                                                                            {!isSelf && (
+                                                                                                                <span className="absolute -top-2.5 -left-2.5 w-6 h-6 bg-slate-900 text-white rounded-full flex items-center justify-center text-[10px] font-black border-2 border-white shadow-sm z-10">
+                                                                                                                    {globalBlankCounter}
+                                                                                                                </span>
+                                                                                                            )}
+                                                                                                            {ans && (
+                                                                                                                <span className={`absolute inset-0 flex items-center justify-center font-bold text-[11px] pointer-events-none ${isSelf ? 'text-blue-600' : 'text-white'}`}>
+                                                                                                                    {ans.length > 5 ? ans.substring(0, 4) + '..' : ans}
+                                                                                                                </span>
+                                                                                                            )}
+                                                                                                        </span>
+                                                                                                    </span>
+                                                                                                );
+                                                                                            }
+                                                                                            return null;
+                                                                                        })}
+                                                                                    </div>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            return (
+                                                                <>
+                                                                    <h4 className="text-base font-bold text-slate-800 leading-tight">
+                                                                        {renderMathToHTML(activeData.mainQuestion, activeData.typeKey, activeData.title, activeData.answers)}
+                                                                    </h4>
+                                                                    <p className="text-xs text-slate-400 font-medium leading-relaxed">
+                                                                        {renderMathToHTML(activeData.guideText, activeData.typeKey, activeData.title)}
+                                                                    </p>
+                                                                    <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
+                                                                        {(activeData.subQuestions || []).slice(0, 4).map((sq, i) => (
+                                                                            <div key={i} className="flex gap-2 items-start opacity-60">
+                                                                                <div className="w-4 h-4 bg-slate-100 rounded text-[8px] flex items-center justify-center font-bold shrink-0">{sq.label || i + 1}</div>
+                                                                                <div className="text-[10px] text-slate-500 whitespace-pre-wrap leading-relaxed">
+                                                                                    {renderMathToHTML(sq.passage || sq.text, activeData.typeKey, activeData.title, Array.isArray(sq.options) ? sq.options : [sq.answer || ""])}
+                                                                                </div>
+                                                                            </div>
+                                                                        ))}
+                                                                        {(activeData.subQuestions || []).length > 4 && (
+                                                                            <div className="text-[9px] text-slate-400 font-bold ml-6">+ {(activeData.subQuestions.length - 4)} more items...</div>
+                                                                        )}
+                                                                    </div>
+                                                                </>
+                                                            );
+                                                        })()}
+                                                    </div>
                                                 </div>
-                                            ))}
-                                            {buildPages.length < 4 && (
-                                                <button onClick={addPage} className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all flex items-center justify-center">
-                                                    <Plus size={12} />
-                                                </button>
+                                            ) : (
+                                                <div className="h-[200px] flex flex-col items-center justify-center text-slate-300 gap-2">
+                                                    <Calculator size={32} className="opacity-20" />
+                                                    <span className="text-[10px] font-bold">Syncing Data...</span>
+                                                </div>
                                             )}
                                         </div>
                                     </div>
 
-                                    {/* Combined Preview Area */}
 
-                                    <div className="bg-slate-50/50 p-4 rounded-[2.5rem] border border-slate-100 min-h-[230px]">
-                                        {activeData ? (
-                                            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200/50">
-                                                {(() => {
-                                                    const p = activeData;
-                                                    const pageTitle = p.title || "";
-                                                    const typeKey = p.typeKey || "";
-                                                    let titleImg = ASSETS.TITLES[p.type] || ASSETS.TITLES['개념'];
-
-                                                    // [G1] 함께/스스로 복합형 및 감지 보완
-                                                    if (typeKey === TYPE_KEYS.TOGETHER_SELF || typeKey === TYPE_KEYS.TOGETHER_SELECT) {
-                                                        if (pageTitle.includes('함께')) titleImg = ASSETS.TITLES['함께 풀기'];
-                                                        else if (pageTitle.includes('스스로')) titleImg = ASSETS.TITLES['스스로 풀기'];
-                                                        else if (p.type === '함께 풀기 + 스스로 풀기') {
-                                                            if (p.mainQuestion?.includes('함께')) titleImg = ASSETS.TITLES['함께 풀기'];
-                                                            else if (p.mainQuestion?.includes('스스로')) titleImg = ASSETS.TITLES['스스로 풀기'];
-                                                        }
-                                                    } else if (typeKey === TYPE_KEYS.QUESTION_MATHINPUT) {
-                                                        titleImg = ASSETS.TITLES['문제'];
-                                                    }
-
-                                                    return <img src={titleImg} className="h-6 mb-3 object-contain brightness-95" alt="Title" />;
-                                                })()}
-                                                <div className="space-y-2 mt-4">
-                                                    {(() => {
-                                                        const isTogetherType = activeData.typeKey?.startsWith("together") || activeData.type?.includes("함께");
-                                                        const title = activeData.title || "";
-                                                        const typeKey = activeData.typeKey;
-
-                                                        if (isTogetherType && activeData.lines && activeData.lines.length > 0) {
-                                                            let globalBlankCounter = 0;
-                                                            return (
-                                                                <div className="space-y-5">
-                                                                    <h4 className="text-base font-bold text-slate-800 leading-tight">
-                                                                        {renderMathToHTML(activeData.mainQuestion, typeKey, title, activeData.answers)}
-                                                                    </h4>
-                                                                    <p className="text-xs text-slate-400 font-medium leading-relaxed mb-4">
-                                                                        {renderMathToHTML(activeData.guideText, typeKey, title)}
-                                                                    </p>
-                                                                    <div className="space-y-4 pt-4 border-t border-slate-100">
-                                                                        {activeData.lines.map((line, li) => (
-                                                                            <div key={li} className="flex gap-3 items-start">
-                                                                                {line.label && <div className="text-[10px] font-black text-slate-400 mt-1 shrink-0">{line.label}</div>}
-                                                                                <div className="flex-1 text-sm leading-relaxed text-slate-700">
-                                                                                    {(line.parts || []).map((part, pi) => {
-                                                                                        if (part.type === 'text') return renderMathToHTML(part.content, typeKey, title);
-                                                                                        if (part.type === 'blank') {
-                                                                                            globalBlankCounter++;
-                                                                                            const isSelf = title.includes("스스로");
-                                                                                            const ans = (part.options && part.options[0]) || "";
-                                                                                            return (
-                                                                                                <span key={pi} className="inline-flex items-center align-middle mx-1 relative">
-                                                                                                    <span className={`inline-flex items-center justify-center rounded-md border-2 transition-all relative ${isSelf ? 'w-12 h-7 bg-white border-slate-200 shadow-sm' : 'w-9 h-8 bg-[#00bcf1] border-[#00bcf1] shadow-[0_3px_0_0_#0097c3]'}`}>
-                                                                                                        {!isSelf && (
-                                                                                                            <span className="absolute -top-2.5 -left-2.5 w-5 h-5 bg-slate-900 text-white rounded-full flex items-center justify-center text-[8px] font-black border border-white shadow-sm z-10">
-                                                                                                                {globalBlankCounter}
-                                                                                                            </span>
-                                                                                                        )}
-                                                                                                        {ans && <span className={`text-[9px] font-bold ${isSelf ? 'text-blue-500' : 'text-white'}`}>{ans.length > 4 ? ans.substring(0, 3) + '..' : ans}</span>}
-                                                                                                    </span>
-                                                                                                </span>
-                                                                                            );
-                                                                                        }
-                                                                                        return null;
-                                                                                    })}
-                                                                                </div>
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        }
-
-                                                        // Fallback for standard question types
-                                                        return (
-                                                            <>
-                                                                <h4 className="text-base font-bold text-slate-800 leading-tight">
-                                                                    {renderMathToHTML(activeData.mainQuestion, activeData.typeKey, activeData.title, activeData.answers)}
-                                                                </h4>
-                                                                <p className="text-xs text-slate-400 font-medium leading-relaxed">
-                                                                    {renderMathToHTML(activeData.guideText, activeData.typeKey, activeData.title)}
-                                                                </p>
-
-                                                                {/* Sub-items summary */}
-                                                                <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
-                                                                    {(activeData.subQuestions || []).slice(0, 4).map((sq, i) => (
-                                                                        <div key={i} className="flex gap-2 items-start opacity-60">
-                                                                            <div className="w-4 h-4 bg-slate-100 rounded text-[8px] flex items-center justify-center font-bold shrink-0">{sq.label || i + 1}</div>
-                                                                            <div className="text-[10px] text-slate-500 truncate">
-                                                                                {renderMathToHTML(sq.passage || sq.text, activeData.typeKey, activeData.title, Array.isArray(sq.options) ? sq.options : [sq.answer || ""])}
-                                                                            </div>
-                                                                        </div>
-                                                                    ))}
-                                                                    {(activeData.subQuestions || []).length > 4 && (
-                                                                        <div className="text-[9px] text-slate-400 font-bold ml-6">+ {(activeData.subQuestions.length - 4)} more items...</div>
-                                                                    )}
-                                                                </div>
-                                                            </>
-                                                        );
-                                                    })()}
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div className="h-[200px] flex flex-col items-center justify-center text-slate-300 gap-2">
-                                                <Calculator size={32} className="opacity-20" />
-                                                <span className="text-[10px] font-bold">Syncing Data...</span>
-                                            </div>
-                                        )}
-                                    </div>
-
-
-                                    <details className="mb-5 text-slate-400">
+                                    {/* 유형 및 템플릿 직접 설정 */}
+                                    {/* <details className="mb-5 text-slate-400">
                                         <summary className="cursor-pointer text-xs font-black uppercase tracking-widest hover:text-indigo-500 transition-colors">[선택] 유형 및 템플릿 직접 설정</summary>
                                         <div className="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-4">
-
                                             <div>
-                                                <label className="text-xs font-black text-slate-400 uppercase mb-2 block tracking-widest">
-                                                    Manual Type Filtering
-                                                </label>
+                                                <label className="text-xs font-black text-slate-400 uppercase mb-2 block tracking-widest">Manual Type Filtering</label>
                                                 <select
                                                     value={selectedTypeKey}
                                                     onChange={(e) => {
@@ -1989,25 +2001,18 @@ const App = () => {
                                                 >
                                                     <option value="">Auto Detect (Default)</option>
                                                     {TYPE_DEFS.map((t) => (
-                                                        <option key={t.typeKey} value={t.typeKey}>
-                                                            {t.label}
-                                                        </option>
+                                                        <option key={t.typeKey} value={t.typeKey}>{t.label}</option>
                                                     ))}
                                                 </select>
                                             </div>
-
                                             <div>
-                                                <label className="text-xs font-black text-slate-400 uppercase mb-2 block tracking-widest">
-                                                    Select Template
-                                                </label>
+                                                <label className="text-xs font-black text-slate-400 uppercase mb-2 block tracking-widest">Select Template</label>
                                                 <select
                                                     value={selectedTemplateId || ""}
                                                     onChange={(e) => setSelectedTemplateId(e.target.value)}
                                                     className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-300"
                                                 >
-                                                    <option value="">
-                                                        {selectedTypeKey ? "Select a template..." : "Auto Select based on detection"}
-                                                    </option>
+                                                    <option value="">{selectedTypeKey ? "Select a template..." : "Auto Select based on detection"}</option>
                                                     {filteredTemplates.map((t) => (
                                                         <option key={t.id} value={t.id}>{t.name}</option>
                                                     ))}
@@ -2015,45 +2020,40 @@ const App = () => {
                                                 </select>
                                             </div>
                                         </div>
-                                    </details>
-                                </div>
+                                    </details> */}
 
-                                {/* Source Image Card (Outside Live Preview) */}
-                                {buildPages[activePageIndex]?.image && (
-                                    <div
-                                        className="bg-white p-4 rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col gap-3 cursor-zoom-in hover:border-indigo-200 transition-all group scale-100 hover:scale-[1.02] active:scale-95"
-                                        onClick={() => setZoomedImage(buildPages[activePageIndex].image)}
-                                    >
-                                        <div className="flex items-center justify-between px-2">
-                                            <div className="flex items-center gap-2 text-slate-400">
-                                                <ImageIcon size={14} />
-                                                <span className="text-[10px] font-black uppercase tracking-wider">교과서 이미지</span>
+                                    {buildPages[activePageIndex]?.image && (
+                                        <div
+                                            className="bg-white mt-2 p-4 rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col gap-3 cursor-zoom-in hover:border-indigo-200 transition-all group scale-100 hover:scale-[1.02] active:scale-95"
+                                            onClick={() => setZoomedImage(buildPages[activePageIndex].image)}
+                                        >
+                                            <div className="flex items-center justify-between px-2">
+                                                <div className="flex items-center gap-2 text-slate-400">
+                                                    <ImageIcon size={14} />
+                                                    <span className="text-[10px] font-black uppercase tracking-wider">교과서 이미지</span>
+                                                </div>
+                                                <div className="text-[10px] font-bold text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity">Click to zoom</div>
                                             </div>
-                                            <div className="text-[10px] font-bold text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity">Click to zoom</div>
+                                            <div className="bg-slate-50 rounded-[1.5rem] overflow-hidden aspect-video border border-slate-100/50">
+                                                <img
+                                                    src={buildPages[activePageIndex].image}
+                                                    className="w-full h-full object-contain"
+                                                    alt="Source"
+                                                />
+                                            </div>
                                         </div>
-                                        <div className="bg-slate-50 rounded-[1.5rem] overflow-hidden aspect-video border border-slate-100/50">
-                                            <img
-                                                src={buildPages[activePageIndex].image}
-                                                className="w-full h-full object-contain"
-                                                alt="Source"
-                                            />
-                                        </div>
-                                    </div>
-                                )}
+                                    )}
+                                </div>
                             </div>
-                            <div className="col-span-3 h-[calc(100vh-180px)] overflow-y-auto pr-4 custom-scrollbar">
-                                <div className="bg-white p-10 rounded-[4.5rem] border border-slate-200 shadow-sm min-h-[600px] flex flex-col relative overflow-hidden">
 
+                            {/* 우측 col-span-3 영역 */}
+                            <div className="w-3/5 flex flex-col h-full overflow-hidden">
+                                <div className="bg-white p-10 rounded-[4.5rem] border border-slate-200 shadow-sm h-full flex-1 overflow-y-auto custom-scrollbar">
                                     {buildPages[activePageIndex]?.data ? (
                                         <div className="w-full space-y-10 animate-in slide-in-from-right-10 duration-500">
-
-
-
                                             <div className="flex items-center justify-between mt-8">
-                                                <h3 className="text-3xl font-extrabold tracking-tight text-slate-900">View {buildPages[activePageIndex].id}</h3>
-
+                                                <h3 className="text-3xl font-extrabold tracking-tight text-slate-900">View {buildPages[activePageIndex].id} 내용 수정</h3>
                                             </div>
-
                                             <div className="p-8 bg-white rounded-[2.5rem] border border-slate-200 shadow-sm space-y-6">
                                                 <div>
                                                     <label className="text-[15px] font-bold text-slate-400 uppercase tracking-widest block ml-1 mb-2">발문</label>
@@ -2064,7 +2064,7 @@ const App = () => {
                                                     <input className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 font-medium text-sm text-slate-600 focus:bg-white transition-all" value={buildPages[activePageIndex].data.guideText || ""} onChange={e => updateCurrentPageData({ ...buildPages[activePageIndex].data, guideText: e.target.value })} />
                                                 </div>
                                             </div>
-                                            <div className="space-y-6 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                                            <div className="space-y-6">
                                                 {renderTypeEditor(buildPages[activePageIndex].data)}
                                             </div>
                                             <button onClick={onClickZip} className="w-full py-7 bg-slate-900 text-white rounded-[3rem] font-black text-xl shadow-2xl hover:bg-black hover:scale-[1.01] active:scale-95 transition-all flex items-end justify-center gap-6">
@@ -2082,7 +2082,7 @@ const App = () => {
                         </div>
                     )}
 
-                    {activeTab === 'library' && (
+                    {/* {activeTab === 'library' && (
                         <div className="grid grid-cols-2 gap-12 animate-in fade-in duration-500 pb-20">
                             <div className="bg-white p-12 rounded-[3.5rem] border border-slate-200 shadow-sm relative overflow-hidden group flex flex-col">
                                 <h3 className="text-3xl font-black mb-8 text-slate-800 tracking-tight">Add New Template</h3>
@@ -2121,7 +2121,7 @@ const App = () => {
                                 </div>
                             </div>
                         </div>
-                    )}
+                    )} */}
                 </div>
             </main>
 

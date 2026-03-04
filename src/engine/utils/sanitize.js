@@ -7,7 +7,10 @@ export const sanitizeLaTeX = (str) => {
   // 1. $...$ 또는 $$...$$ -> \(...\) (줄바꿈 포함 및 중복 처리 방지)
   sanitized = sanitized.replace(/\${1,2}([\s\S]*?)\${1,2}/g, "\\($1\\)");
 
-  // 2. 수식 구분자 균형 보정 (불완전한 구분자 수정)
+  // [MODIFIED] 2. 수식 구분자 파편 보정 (불완전한 구분자 수정)
+  // 단순히 \이나 \ 로만 끝나는 파편은 무의미하므로 제거하거나 완성
+  if (sanitized === "\\(" || sanitized === "\\)") return "";
+
   if (sanitized.includes("\\(") && !sanitized.includes("\\)")) {
     sanitized += "\\)";
   } else if (!sanitized.includes("\\(") && sanitized.includes("\\)")) {
@@ -15,7 +18,6 @@ export const sanitizeLaTeX = (str) => {
   }
 
   // 3. 수식 기호가 있으나 구분자가 없는 경우 감싸기
-  // 단, 이미 \( 또는 \[ 가 포함되어 있거나 한글이 섞여 있으면 보수적으로 처리
   if (
     (sanitized.includes("\\") || sanitized.includes("^") || sanitized.includes("_")) &&
     !sanitized.includes("\\(") &&
@@ -27,13 +29,23 @@ export const sanitizeLaTeX = (str) => {
     }
   }
 
-  // 4. 중복 감싸기 제거 (예: \( \( ... \) \) -> \( ... \))
+  // 4. 중복 및 빈 블록 제거 (예: \( \( ... \) \) -> \( ... \))
   let prev;
   do {
     prev = sanitized;
-    sanitized = sanitized.replace(/\\\((\s*\\\( [\s\S]*? \\\)\s*)\\\)/g, "$1");
-    sanitized = sanitized.replace(/\\\((\s*\\\[ [\s\S]*? \\\]\s*)\\\)/g, "$1");
+    // 중복 감싸기 제거
+    sanitized = sanitized.replace(/\\\((\s*\\\([\s\S]*?\\\)\s*)\\\)/g, "$1");
+    sanitized = sanitized.replace(/\\\((\s*\\\[[\s\S]*?\\\]\s*)\\\)/g, "$1");
+    sanitized = sanitized.replace(/\\\[(\s*\\\[[\s\S]*?\\\]\s*)\\\]/g, "$1");
+    // [NEW] 빈 블록 제거 (Codecogs invalid equation 방지)
+    sanitized = sanitized.replace(/\\\((\s*)\\\)/g, "");
+    sanitized = sanitized.replace(/\\\[(\s*)\\\]/g, "");
   } while (sanitized !== prev);
 
-  return sanitized;
+  // [NEW] 5. 수식 내부의 끝 백슬래시 제거 (Codecogs 에러 방지)
+  // \( x = 3 \ \) -> \( x = 3 \)
+  sanitized = sanitized.replace(/\\\s*\\\)/g, "\\)");
+  sanitized = sanitized.replace(/\\\s*\\\]/g, "\\\]");
+
+  return sanitized.trim();
 };

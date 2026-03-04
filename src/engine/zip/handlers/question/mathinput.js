@@ -103,43 +103,40 @@ const mathInputHandler = {
   },
 
   patchActJs({ actJsText, data, pageIndex }) {
-    // oldzip.js logic: dap1_array, qArange, q_len, dap_array
-    // act.js가 "var dap1_array = ..." 형태라고 가정
     let out = actJsText;
-
-    // 1. 각 문항 정답 (dapN_array)
-    //    템플릿에는 var dap1_array=['...'];, var dap2_array=['...']; 등이 있을 것임.
-    //    데이터 개수만큼 매치해서 교체, 없으면 추가? -> oldzip은 "있는 거 교체" + "부족하면...?"
-    //    여기서는 "데이터 개수만큼 순회하며 교체/추가" 
-
     const questions = data.questions || [];
     const n = questions.length;
     const esc = (s) => String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 
+    // 1. 개별 정답 배열 (dapX_array) 처리
     for (let i = 0; i < n; i++) {
       const val = questions[i].answerLatex;
       const varName = `dap${i + 1}_array`;
       const newCode = `var ${varName} = ["${esc(val)}"];`;
 
-      if (new RegExp(`var\\s+${varName}\\s*=`).test(out)) {
-        out = out.replace(new RegExp(`var\\s+${varName}\\s*=\\s*\\[[^\\]]*\\]\\s*;`), newCode);
+      // [수정됨] g 플래그 제거 및 값 매칭 정규식 개선 ([^;]* 사용)
+      const re = new RegExp(`(?:var|let|const)?\\s*${varName}\\s*=\\s*[^;]*;?`);
+
+      if (re.test(out)) {
+        out = out.replace(re, newCode);
       } else {
-        // 없으면 qArange 근처에 삽입 (Fallback)
-        out = out.replace(/(var\s+qArange)/, `${newCode}\n$1`);
+        // [수정됨] 못 찾은 경우 q_len 변수 선언부 바로 위에 추가 (qArange 위보다 안전함)
+        out = out.replace(/((?:var|let|const)?\s*q_len)/, `${newCode}\n$1`);
       }
     }
 
     // 2. q_len
-    out = out.replace(/var\s+q_len\s*=\s*\d+\s*;/, `var q_len = ${n};`);
+    out = out.replace(/(?:var|let|const)?\s*q_len\s*=\s*\d+\s*;?/, `var q_len = ${n};`);
 
     // 3. qArange: [[1],[2],...]
     const arangeStr = "[" + Array.from({ length: n }, (_, i) => `[${i + 1}]`).join(", ") + "]";
-    out = out.replace(/var\s+qArange\s*=\s*\[[^\]]*\]\s*;/, `var qArange = ${arangeStr};`);
+    // [수정됨] 중첩 배열([[1], [2]])을 처리하지 못하던 기존 정규식(\[[^\]]*\])을 [^;]* 로 변경
+    out = out.replace(/(?:var|let|const)?\s*qArange\s*=\s*[^;]*;?/, `var qArange = ${arangeStr};`);
 
     // 4. dap_array: [].concat(dap1_array, dap2_array...)
     const concatArgs = Array.from({ length: n }, (_, i) => `dap${i + 1}_array`).join(", ");
     out = out.replace(
-      /var\s+dap_array\s*=\s*[^;]*;/,
+      /(?:var|let|const)?\s+dap_array\s*=\s*[^;]*;?/,
       `var dap_array = [].concat(${concatArgs});`
     );
 

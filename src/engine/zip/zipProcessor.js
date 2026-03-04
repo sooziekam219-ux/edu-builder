@@ -152,21 +152,24 @@ export async function processAndDownloadZip({
     const loadedZip = await zip.loadAsync(combined);
 
     // * Base Templates 확보: view01.html, act01.js 등
-    // 템플릿에 view02 등 없는 경우를 대비해 01번 파일을 기준으로 복제 준비
     let view01Path = null;
-    let act01Path = null;
+    let actBasePath = null;
+    let actBaseFilename = null;
 
     // zip 내 파일 경로 탐색 (최상위가 아닐 수 있음)
     Object.keys(loadedZip.files).forEach(path => {
-      if (path.endsWith("view01.html")) view01Path = path;
-      if (path.endsWith("act01.js")) act01Path = path;
+      const fName = path.split('/').pop();
+      if (fName === "view01.html") view01Path = path;
+      if (fName === "act01.js" || fName === "act.js") {
+        actBasePath = path;
+        actBaseFilename = fName;
+      }
     });
 
     if (!view01Path) throw new Error("view01.html이 템플릿에 없습니다.");
 
     const baseHtmlContent = await loadedZip.file(view01Path)?.async("string");
-    const baseJsContent = act01Path ? await loadedZip.file(act01Path)?.async("string") : "";
-
+    const baseJsContent = actBasePath ? await loadedZip.file(actBasePath)?.async("string") : "";
     // 파일 삭제 목록
     const filesToRemove = [];
 
@@ -180,10 +183,10 @@ export async function processAndDownloadZip({
           if (idx > totalPage) filesToRemove.push(path);
         }
       }
-      if (fName.startsWith("act") && fName.endsWith(".js") && fName.includes("0")) { // act01.js check
-        const m = fName.match(/act(\d+)\.js/);
+      if (fName.startsWith("act") && fName.endsWith(".js")) {
+        const m = fName.match(/act0*(\d+)\.js/); // act2.js, act02.js 모두 매칭
         if (m) {
-          const idx = parseInt(m[1]);
+          const idx = parseInt(m[1], 10);
           if (idx > totalPage) filesToRemove.push(path);
         }
       }
@@ -441,16 +444,33 @@ export async function processAndDownloadZip({
       promises.push(Promise.resolve().then(() => loadedZip.file(targetHtmlPath, serializer.serializeToString(doc))));
 
       // --- JS ---
-      // JS는 act01.js, act02.js ... 매핑
-      // (주의: together.select는 JS 패치가 거의 없지만 question.mathinput은 있음)
-      let jsPath = `act${pNumStr}.js`;
-      // 경로 찾기 (폴더 구조가 있을 수 있음) - 여기서는 단순화.
-      const foundJsPath = Object.keys(loadedZip.files).find(k => k.endsWith(jsPath));
+      // --- JS ---
+      let targetJsName;
 
+      // 1쪽(i===0)일 때는 템플릿의 원본 이름 (act.js 또는 act01.js)을 따라감
+      if (i === 0) {
+        targetJsName = actBaseFilename || "act.js";
+      } else {
+        // 2쪽부터는 act2.js, act3.js 형태로 네이밍
+        targetJsName = `act${pageNum}.js`;
+      }
+
+      // 압축 파일 내에서 해당 페이지용 JS 파일 찾기
+      let foundJsPath = Object.keys(loadedZip.files).find(k => k.split('/').pop() === targetJsName);
+
+      // (방어 코드) 혹시라도 템플릿 제작자가 act02.js 로 네이밍했을 경우를 대비
+      if (!foundJsPath && i > 0) {
+        const fallbackName = `act${String(pageNum).padStart(2, '0')}.js`;
+        foundJsPath = Object.keys(loadedZip.files).find(k => k.split('/').pop() === fallbackName);
+        if (foundJsPath) targetJsName = fallbackName;
+      }
+
+      // 해당 페이지용 원본 파일이 있으면 그걸 쓰고, 없으면 1페이지 JS 복제
       let jsContent = foundJsPath ? await loadedZip.file(foundJsPath)?.async("string") : null;
-      if (!jsContent && baseJsContent) jsContent = baseJsContent; // 복제
+      if (!jsContent && baseJsContent) jsContent = baseJsContent;
 
       if (jsContent) {
+        // 엔진을 통한 정답/수식 패치
         const patchedJs = engine.patchActJs
           ? engine.patchActJs({
             actJsText: jsContent,
@@ -459,17 +479,17 @@ export async function processAndDownloadZip({
           })
           : jsContent;
 
-        // 저장 위치: foundJsPath가 있으면 거기, 없으면 act02.js 등으로 루트(혹은 view랑 같은 폴더) 생성
-        // 템플릿 구조를 따라가기 위해 act01.js가 있던 폴더를 찾음
-        let targetJsPath = foundJsPath || jsPath;
-        if (!foundJsPath && baseJsContent) {
-          // act01.js의 위치를 찾아 그 폴더에 act02.js 생성
-          const baseJsFile = Object.keys(loadedZip.files).find(k => k.endsWith("act01.js"));
-          if (baseJsFile) {
-            targetJsPath = baseJsFile.replace("act01.js", jsPath);
-          }
+        let targetJsPath = foundJsPath;
+
+        // 새로 생성해야 하는 파일인 경우 (예: 1쪽만 있는데 2쪽, 3쪽을 만들어야 할 때)
+        if (!targetJsPath && actBasePath) {
+          // act.js가 있던 폴더 위치에 act2.js, act3.js 등의 이름으로 새 경로 지정
+          targetJsPath = actBasePath.substring(0, actBasePath.lastIndexOf(actBaseFilename)) + targetJsName;
         }
-        promises.push(Promise.resolve().then(() => loadedZip.file(targetJsPath, patchedJs)));
+
+        if (targetJsPath) {
+          promises.push(Promise.resolve().then(() => loadedZip.file(targetJsPath, patchedJs)));
+        }
       }
     }
 

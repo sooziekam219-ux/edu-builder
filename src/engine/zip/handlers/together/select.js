@@ -113,17 +113,18 @@ function patchTogetherSelectActJs(actJsText, data) {
   let out = actJsText;
   const zeros = daps.map(() => 0);
 
-  // 1. dap_array 치환 (var/let/const 및 유연한 공백 대응)
-  const dapRegex = /(?:var|let|const)\s+dap_array\s*=\s*\[[\s\S]*?\]\s*;/g;
+  // 1. dap_array 치환 (var/let/const 및 유연한 공백/세미콜론 대응)
+  const dapRegex = /(?:var|let|const)\s+dap_array\s*=\s*\[[\s\S]*?\]\s*;?/g;
   if (dapRegex.test(out)) {
     out = out.replace(dapRegex, `var dap_array = ${JSON.stringify(daps)};`);
   } else {
-    out = out.replace(/dap_array\s*=\s*\[[\s\S]*?\]\s*;/g, `dap_array = ${JSON.stringify(daps)};`);
+    // 이미 선언된 경우 (var/let 없이) 대응
+    out = out.replace(/dap_array\s*=\s*\[[\s\S]*?\]\s*;?/g, `dap_array = ${JSON.stringify(daps)};`);
   }
 
   // 2. 관련 보조 배열 동기화 (ans_array, card_array)
-  const ansRegex = /(?:var|let|const)\s+ans_array\s*=\s*\[[\s\S]*?\]\s*;/g;
-  const cardRegex = /(?:var|let|const)\s+card_array\s*=\s*\[[\s\S]*?\]\s*;/g;
+  const ansRegex = /(?:var|let|const)\s+ans_array\s*=\s*\[[\s\S]*?\]\s*;?/g;
+  const cardRegex = /(?:var|let|const)\s+card_array\s*=\s*\[[\s\S]*?\]\s*;?/g;
 
   if (ansRegex.test(out)) {
     out = out.replace(ansRegex, `var ans_array = ${JSON.stringify(zeros)};`);
@@ -133,7 +134,7 @@ function patchTogetherSelectActJs(actJsText, data) {
   }
 
   // 3. 문항 개수(q_len) 업데이트
-  out = out.replace(/(?:var|let|const)\s+q_len\s*=\s*[^;]+;/g, `var q_len = ${daps.length};`);
+  out = out.replace(/(?:var|let|const)\s+q_len\s*=\s*[^;]+;?/g, `var q_len = ${daps.length};`);
 
   return out;
 }
