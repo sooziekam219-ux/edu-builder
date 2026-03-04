@@ -93,154 +93,104 @@ const CHUNK_SIZE = 500 * 1024;
 
 
 // --- Prompts ---
-const KIM_HWA_KYUNG_PROMPT = `
-  **Role:** Expert digital textbook converter for 'Kim Hwa-kyung'.
-  Analyze input textbook image(s) and split content into logical sections for a Storyboard.
-  
-  **Splitting Rules:**
-  - Detect visual separators like "문제 1", "함께 풀기", "함께 풀기 + 스스로 풀기".
-  - **Type:** '문제', '함께 풀기', '함께 풀기 + 스스로 풀기'
-  - **Body Text:** Use LaTeX \\( ... \\). Use \\n to separate distinct questions or sentences.
-  - **답이 스토리보드에 포함되지 않도록 주의** 
+const UNIVERSAL_BUILDER_PROMPT = `당신은 초중고 수학 교육 콘텐츠 전문 개발자입니다. 
+이미지를 분석하여 학습자의 학습 단계에 가장 적합한 '스토리보드 유형'을 결정하고 JSON을 생성하라.
 
-  **Specific Rules for '함께 풀기 + 스스로 풀기':**
-    "중요: '함께 풀기'와 '스스로 풀기'는 반드시 서로 다른 별개의 'section' 객체로 나누어서 응답할 것."
-  1. **Preserve Full Text:** Do NOT omit any sentences. Extract the entire explanation process.
-  2. **Together Part (함께 풀기):** Keep the text as is. Ensure LaTeX is correctly formatted.
-  3. **Self Part (스스로 풀기):** Identify areas that are underlined in the image and represent them as '_'. one explanation has to be included.
-  - **Answers:** Extract or solve for correct answers.
- ### STEP 0: 텍스트 정제 규칙 (Text Cleaning)
-- 이미지에 포함된 "답:", "정답:", "풀이:", "해설:"로 시작하는 텍스트는 교사용 정보이므로 **절대 'body'나 'content'에 포함하지 마라.**
-- 만약 문제 바로 아래에 정답이 적혀 있다면, 해당 정답은 'answers' 배열에만 넣고 'body'에서는 삭제하라.
-- 반드시 "숫자 = □" 와 같이 등호를 빈칸 밖의 *텍스트**로 분리하여 추출하십시오.
+### STEP 1: 최상위 유형 분류 규칙 (Classification Priority)
+텍스트의 양이나 그림의 유무보다 **'콘텐츠의 목적'**을 최우선으로 하여 다음 순서로 유형을 결정하라:
 
-  **Study Section (스스로 풀기) Rules:**
-  1. **Underline Detection:** Look for text with underlines (____) in the image. 
-  2. **Symbol Conversion:** Replace the underlined text part with the symbol '□'.
-  3. **Full Context:** Extract the complete sentence including the '□'.
-  4. **Answer Extraction:** Place the actual text that was on the underline into the "answers" array in the correct sequence.
-  5. **LaTeX:** Ensure all mathematical expressions within or around the underline are wrapped in \( ... \).
+1. **[Together 계열] 과정 중심형 (Solving Process)**:
+   - 이미지 내에 "함께 풀기", "스스로 풀기", "해보기" 같은 타이틀 아이콘이 있거나,
+   - 아이콘이 없더라도 **빈칸(□, _)이 포함된 단계별 풀이 과정**이 나열되어 있다면 무조건 이 유형이다. (긴 텍스트도 포함)
+   - **Case A**: '함께 풀기'와 '스스로 풀기'가 대칭구조로 존재 -> \`together.self\`
+   - **Case B**: '함께 풀기'만 있거나 일반적인 풀이 과정만 나열됨 -> \`together.select\`
 
-  **Illustration Detection (NEW):**
-  - **Only for '문제' (question.mathinput) type:** If a section contains an illustration, diagram, or specific figure (like a photo card or geometry figure), extract its coordinates.
-  - Illustrations are NOT expected in '함께 풀기' or '스스로 풀기' sections.
-  - **figure_bounds:** [ymin, xmin, ymax, xmax] (0-1000 scale). If none, [0,0,0,0].
-  - **figure_alt:** Brief description of the figure.
+2. **[Image 유형] 삽화 필수형 (Illustration Required)**:
+   - 위 1번에 해당하지 않으며, 문제 풀이를 위해 반드시 참고해야 하는 **도형, 그래프, 사진, 사진 카드** 등이 포함된 경우.
+   - 본문에 "오른쪽 그림에서", "도형을 보고" 등의 참조 어구가 있다면 확실하다.
+   - -> \`question.image\`
 
-  Output JSON format[together.self]:
-  {
-    "sections": [
-      {
-        "type": "함께 풀기 + 스스로 풀기",
-        "typeKey": "together.self",
-        "subtype": "복합형",
-        "content": { "title": "함께 풀기", "instruction": "...", "body": "전체 텍스트..." },
-        "answers": ["정답"],
-        "explanation": ["해설"],
-        "figure_bounds": [0,0,0,0],
-        "figure_alt": "이미지 설명"
-      }
-    ]
-  }
-  
-  Output JSON format[question.image]:
+3. **[Standard 유형] 일반 문제 (Pure Text/Math)**:
+   - 위 1, 2번에 해당하지 않는 일반적인 발문과 수식형 문제.
+   - -> \`question.mathinput\`
+
+### STEP 2: 데이터 추출 세부 규칙
+- **정답 추출**: "답:", "정답:", "풀이:" 텍스트는 교사용 정보이므로 본문(\`passage\`)에서 삭제하고 \`answers\` 배열에만 넣어라.
+- **수식 보호**: 모든 수학적 수식(숫자 하나라도)은 반드시 \`\\\\( ... \\\\)\` (백슬래시 2개)로 감싸라.
+- **삽화 좌표**: \`question.image\` 뿐만 아니라 모든 유형에서 의미 있는 삽화가 있다면 \`figure_bounds\`([ymin, xmin, ymax, xmax], 0~1000)를 추출하라.
+
+### STEP 3: 출력 포맷 (Flat JSON Only)
+무조건 아래의 단일 객체 형식을 따라라. \`sections\`나 \`candidates\` 같은 래퍼(Wrapper)를 절대 쓰지 마라.
+
 {
-  "type" : "문제 - 삽화 O",
-  "typeKey": "question.image",
-  "mainQuestion": "오른쪽 직사각형 모양의 포토 카드에서...",
-  "guideText": "",
-  "figure_bounds": [300, 600, 800, 950],
-  "figure_alt": "직사각형 ABCD와 정사각형 BEFC가 있는 포토 카드 이미지",
-  "passage": "전체 문제 텍스트...",
-  "answer": "정답",
-  "explanation": "해설"
+  "typeKey": "유형키 (together.self | together.select | question.image | question.mathinput)",
+  "mainQuestion": "발문/제목",
+  "guideText": "가이드/지문",
+  "figure_bounds": [ymin, xmin, ymax, xmax],
+  "figure_alt": "이미지 설명",
+  "passage": "전체 본문 텍스트 (together 계열은 빈칸 □ 포함)",
+  "answers": ["정답1", "정답2"],
+  "explanation": ["해설"],
+  "lines": [ 
+    /* together 계열 전용: 풀이 과정을 줄 단위로 구성 */
+    { "label": "", "parts": [ { "type": "text", "content": "..." }, { "type": "blank", "options": ["정답", "오답1", "오답2"], "explanation": "..." } ] }
+  ],
+  "subQuestions": [
+    /* question 계열 전용 */
+    { "label": "1", "passage": "소문항 내용", "answer": "정답", "explanation": "해설" }
+  ]
 }
 
-  
-  
-`;
-
-const UNIVERSAL_BUILDER_PROMPT = `당신은 수학 교육 콘텐츠 전문 개발자입니다. 
-이미지를 분석하여 시각적 증거(로고, 아이콘)를 기반으로 유형을 분류하고, 정해진 규격의 JSON을 생성하라.
-
-### STEP 1: 시각적 구조 및 아이콘 정밀 분석 (Visual & Layout First)
-JSON을 생성하기 전, 텍스트를 읽지 말고 이미지의 전체적인 '틀(Layout)'을 먼저 스캔하여 다음 3가지를 확정하라:
-1. **[함풀 아이콘]**: 좌측 상단에 '함께 풀기' 타이틀 아이콘이 존재하는가?
-2. **[스풀 아이콘]**: 우측 상단에 '스스로 풀기' 타이틀 아이콘이 존재하는가?
-3. **[레이아웃]**: 박스가 좌우 2단(2-Column)으로 나뉘어 있는가, 아니면 화면 전체를 쓰는 1단(Single-Column) 박스인가?
-4. **[삽화 및 구조]**: '함께 풀기' 템플릿 외부의 일반 '문제' 영역에 (1), (2) 같은 **소문항이 없으면서**, 우측이나 하단에 문제 풀이에 필수적인 **시각 자료(도형, 그래프, 실생활 사진 등)**가 포함되어 있는가? (단, 단순 장식용 캐릭터 일러스트는 시각 자료로 치지 않는다.)
-### STEP 2: 절대 유형 결정 규칙 (Strict Decision Table)
-STEP 1의 결과에 따라 한 치의 예외도 없이 아래 규칙에 따라 'typeKey'를 결정하라. 텍스트가 아무리 길어도 이 규칙이 우선한다.
-
-- **[Case A] 좌우 2단 구조 + '함께 풀기' & '스스로 풀기' 아이콘 모두 존재**
-  -> **분류:** \`together.self\` (복합형)
-  -> **특징:** 왼쪽에는 완성된 풀이가 있고, 오른쪽에는 빈칸(밑줄)이 뚫려 있는 대칭 구조.
-
-- **[Case B] 1단 넓은 구조 + '함께 풀기' 아이콘만 단독 존재 ('스스로 풀기' 없음)**
-  -> **분류:** \`together.select\` (선택형/단독형)
-  -> **특징:** 가로로 긴 하나의 박스 안에 빈칸(□)들이 포함된 풀이 과정이 나열됨.
-
-  - **[Case C] 위 두 아이콘(함풀, 스풀)은 없지만, 화면 내에 문제 풀이를 위해 참고해야 할 시각 자료(삼각형/사각형 등 기하 도형, 그래프, 실생활 사진, 포토카드 등)가 단 1개라도 존재하는 경우**
-  -> **분류:** \`question.image\` (삽화 포함 단일 문제)
-  -> **필살 규칙:** 본문 시작이 "문제 1", "2.", "예제" 등으로 시작하더라도, 옆이나 아래에 그림이 붙어있다면 무조건 mathinput이 아닌 **image 유형**을 선택하라. (그림이 있는 문제는 특수 레이아웃이 필수이기 때문)
-  -> **분류 힌트:** 본문에 "오른쪽 (그림/직사각형/삼각형/도형)에서", "그래프와 같이" 등의 시각적 참조 어구가 있다면 100% 삽화가 존재하는 것으로 간주하고 이 유형을 선택하라.
-  -> **특징:** 삼각형, 사각형 같은 단순 기하 도형도 반드시 '삽화'로 간주하여 좌표(\`figure_bounds\`)를 추출해야 함.
-
-- **[Case D] 위 세 케이스(A, B, C)에 해당하지 않는 순수 텍스트와 수식만 있는 경우**
-  -> **분류:** \`question.mathinput\` (일반 문제)
-  -> **특징:** 특정 박스 템플릿이나 삽화 없이 일반적인 발문과 수식만 나열됨.
-- **텍스트가 많더라도 '풀이 과정'의 논리를 가지고 있다면 together.self 유형**
-**중요: 텍스트 양에 상관없이 본문의 '맥락'이 과정형이면 반드시 'lines' 구조를 사용하세요.**
-
-### STEP 3: 스스로 풀기 정답 추론 특수 규칙 (Crucial for together.self)
-'스스로 풀기'의 빈칸(밑줄) 정답을 추출할 때는 절대 임의로 계산 방식을 생략하거나 건너뛰지 마라. 반드시 짝꿍인 '함께 풀기'의 풀이 과정을 1:1 템플릿으로 사용하여 아래의 논리적 흐름(Chain of Thought)을 따라라:
-1. **패턴 매핑 (Pattern Mapping):** '함께 풀기'의 풀이 과정 각 줄에서 어떤 공식, 식의 변형, 연산 논리가 쓰였는지 파악하라.
-2. **숫자 치환 (Substitution):** '스스로 풀기'에 주어진 문제의 숫자와 조건을 '함께 풀기'와 완전히 동일한 위치에 대입하라. 
-3. **중간 과정 도출 (Step-by-Step):** 최종 정답만 구하지 말고, '함께 풀기'의 구조상 중간에 위치한 빈칸(밑줄 등)에 들어가야 할 정확한 식이나 계산값(예: 약분 전의 분수형태, 근호 안의 식 등)을 도출하여 정답으로 설정하라.
-
-**공통 규칙:**
-- 모든 수식은 반드시 '\\\\( ... \\\\)' 형태로 감싸세요. (백슬래시 2개)
-- 'mainQuestion'과 'guideText'를 이미지 맥락에 맞게 생성하세요.
-- 유형 안에 삽화나 도형이 있다면 'figure_bounds'([ymin, xmin, ymax, xmax])를 0~1000 좌표계로 추출하세요. 없으면 [0,0,0,0].
-
-**유형별 데이터 구조:**
-
-1. **together 계열 (together.self, together.select)**:
-- **[절대 규칙: 병합 생성]** 하나의 '함께 풀기'에 있는 내용은 텍스트가 아무리 길고 수식이 많더라도 **절대 여러 개의 JSON 객체(section/activity)로 쪼개지 마라.** 단 1개의 객체 안에서 모두 처리해야 한다.
-   - 풀이 과정이 길다면 객체를 나누는 것이 아니라, 내부의 'lines' 배열에 항목을 계속 추가하는 방식으로 해결하라. 
-   - 'lines' 배열을 사용하세요.
-   - 각 line은 'label'과 'parts' 배열을 가집니다.
-   - 'parts'의 각 항목은 { 'type': 'text', 'content': '...' } 또는 { 'type': 'blank', 'options': [...], 'correctIndex': n, 'explanation': '...' } 입니다.
-   - **중요(together.select 전용):** 'blank'의 'options' 배열에는 반드시 **3개의 선택지**를 포함하세요.
-     - Option 0(정답): 실제 수치/텍스트.
-     - Option 1, 2(오답): 학생들이 가장 많이 하는 실수(부호 오류, 연산 순서 오류, 단위 누락 등)를 반영하여 **현실적이고 매력적인 오답**을 생성하세요.
-
-2. **question.mathinput**:
-   - 'subQuestions' 배열을 사용하세요.
-   - 각 항목은 { 'label': '...', 'passage': '...', 'answer': '...', 'explanation': '...' } 형태입니다.
-
-3. **image 단일형 (question.image)**:
-   - 기하 도형, 실생활 사진 등 문제 풀이에 필수적인 이미지의 좌표를 'figure_bounds'에 정확히 [ymin, xmin, ymax, xmax] (0~1000 스케일)로 추출하세요. (단순 장식용 캐릭터는 추출하지 마세요)
-   - 'figure_alt'에 이미지의 상세한 설명을 작성하세요.
-   - 소문항이 있을 경우 view를 추가하세요. 
-   - 단일 문제이므로 'subQuestions' 배열에 **단 1개의 객체**만 생성하여 긴 문제 텍스트 전체를 'passage'나 'promptLatex'에 담으세요.
-**최종 JSON 응답은 마크다운 코드 블록 없이 순수 JSON만 반환하세요.**
-JSON 구조 예시:
-{
-  "typeKey": "question.image",
-  "mainQuestion": "문제 제목",
-  "guideText": "가이드 텍스트",
-  "figure_bounds": [0,0,0,0],
-  "figure_alt": "이미지 설명",
-  "subQuestions": [
-    { "label": "(1)", "passage": "내용", "answer": "정답", "explanation": "해설" }
-  ]
-}`;
+**주의**: 마크다운 블록(\`\`\`json) 없이 순수 JSON 문자열만 응답하라.`;
 
 
 // --- Helpers ---
 
-// [NEW] Text to Lines/Parts Parser
+// [NEW] Unified Data Normalization Factory
+const factoryNormalize = (raw, typeKeys) => {
+    if (!raw) return null;
+
+    // 1. Ensure root properties are present
+    const data = { ...raw };
+    data.typeKey = data.typeKey || data.type || typeKeys.QUESTION_MATHINPUT;
+    data.mainQuestion = data.mainQuestion || data.title || "다음을 해결하세요.";
+    data.guideText = data.guideText || data.content || "";
+    data.figure_bounds = Array.isArray(data.figure_bounds) ? data.figure_bounds : [0, 0, 0, 0];
+    data.figure_alt = data.figure_alt || "";
+    data.answers = Array.isArray(data.answers) ? data.answers : (data.answer ? [data.answer] : []);
+
+    // 2. Together Type Specialized Normalization
+    if (data.typeKey.includes('together')) {
+        // If lines are missing, generate them from passage
+        if (!data.lines || data.lines.length === 0) {
+            data.lines = parseTextToLines(data.passage || data.guideText || data.body || "", data.answers);
+        }
+        // Ensure subQuestions exist for Together types (compatibility)
+        if (!data.subQuestions || data.subQuestions.length === 0) {
+            data.subQuestions = [{
+                label: "",
+                passage: data.passage || data.guideText || "",
+                answer: data.answers.length > 1 ? data.answers : (data.answers[0] || ""),
+                labelEnabled: true
+            }];
+        }
+    }
+    // 3. Question Type Specialized Normalization
+    else {
+        if (!data.subQuestions || data.subQuestions.length === 0) {
+            const passage = data.passage || data.body || data.guideText || "";
+            data.subQuestions = [{
+                label: data.label || "1",
+                passage: passage,
+                answer: data.answers.length > 1 ? data.answers : (data.answers[0] || ""),
+                explanation: Array.isArray(data.explanation) ? data.explanation[0] : (data.explanation || "")
+            }];
+        }
+    }
+
+    return data;
+};
+
 const parseTextToLines = (text, answers = []) => {
     if (!text) return [];
 
@@ -960,7 +910,7 @@ const App = () => {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        contents: [{ parts: [{ text: KIM_HWA_KYUNG_PROMPT }, { inlineData: { mimeType: "image/png", data: base64 } }] }],
+                        contents: [{ parts: [{ text: UNIVERSAL_BUILDER_PROMPT }, { inlineData: { mimeType: "image/png", data: base64 } }] }],
                         generationConfig: { responseMimeType: "application/json" }
                     })
                 });
@@ -971,242 +921,36 @@ const App = () => {
                 }
 
                 const data = await res.json();
-                if (!data.candidates || !data.candidates[0]) continue;
+                if (!data.candidates || !data.candidates[0]) {
+                    throw new Error(`[Page ${imgIdx + 1}] AI 분석 결과가 없습니다.`);
+                }
 
-                let rawJsonText = data.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim();
+                let rawJsonText = data.candidates[0].content.parts[0].text;
+                const cleanText = rawJsonText.replace(/```json|```/g, "").trim();
+                const parsed = JSON.parse(cleanText);
 
-                // 1. JSON 파싱 보정
-                const sanitizedJson = rawJsonText
-                    .replace(/\\/g, "\\\\")
-                    .replace(/\\\\"/g, '\\"')
-                    .replace(/\\\\n/g, '\\n')
-                    .replace(/\n/g, " ");
+                // Parse candidate - Support both Flat and Section structures
+                let candidates = [];
+                if (parsed.sections && Array.isArray(parsed.sections)) {
+                    candidates = parsed.sections;
+                } else if (parsed.typeKey || parsed.type) {
+                    candidates = [parsed];
+                }
 
-                const parsed = JSON.parse(sanitizedJson);
+                candidates.forEach((cand, sIdx) => {
+                    const normalized = factoryNormalize(cand, TYPE_KEYS);
+                    const detectedTypeKey = normalized.typeKey;
 
-                // 2. 수식 백슬래시 복구 함수
-                const deepRestore = (obj) => {
-                    if (typeof obj === 'string') return obj.replace(/\\\\/g, "\\");
-                    if (Array.isArray(obj)) return obj.map(deepRestore);
-                    if (obj !== null && typeof obj === 'object') {
-                        const newObj = {};
-                        for (let key in obj) { newObj[key] = deepRestore(obj[key]); }
-                        return newObj;
-                    }
-                    return obj;
-                };
-
-                const pageSections = deepRestore(parsed.sections || []);
-                const hasTogether = pageSections.some(s => (s?.content?.title || "").includes("함께"));
-                const hasSelf = pageSections.some(s => (s?.content?.title || "").includes("스스로"));
-                const isTogetherSelfSet = hasTogether && hasSelf;
-
-                let lastTogetherType = ""; // [추가] 이전 섹션의 together 유형 추적
-
-                pageSections.forEach((sec, sIdx) => {
-                    const title = sec?.content?.title || sec?.mainQuestion || "";
-                    const secTitle = title.toLowerCase();
-                    const isThisSecSelf = secTitle.includes('스스로');
-                    const isThisSecTogether = secTitle.includes('함께');
-
-                    // [수정] 분류 상속 로직: 제목이 없거나 숫자로 시작하거나 '계속'이 포함된 경우 이전 together 유형 상속
-                    const isContinuation = !title || /^\d/.test(title) || title.includes("계속");
-
-                    let detectedTypeKey = "";
-                    let type = "";
-
-                    if (isTogetherSelfSet && (isThisSecTogether || isThisSecSelf)) {
-                        detectedTypeKey = TYPE_KEYS.TOGETHER_SELF;
-                        type = isThisSecSelf ? '스스로 풀기' : '함께 풀기 + 스스로 풀기';
-                    } else if (isThisSecTogether) {
-                        detectedTypeKey = TYPE_KEYS.TOGETHER_SELECT;
-                        type = '함께 풀기';
-                    } else if (isThisSecSelf) {
-                        detectedTypeKey = TYPE_KEYS.TOGETHER_SELF;
-                        type = '스스로 풀기';
-                    } else if (isContinuation && lastTogetherType) {
-                        detectedTypeKey = lastTogetherType;
-                        type = lastTogetherType === TYPE_KEYS.TOGETHER_SELECT ? '함께 풀기' : '함께 풀기 + 스스로 풀기';
-                    } else {
-                        detectedTypeKey = TYPE_KEYS.QUESTION_MATHINPUT;
-                        type = '문제';
-                    }
-
-                    // 다음 섹션을 위해 현재 together 유형 저장
-                    if (detectedTypeKey.startsWith("together")) {
-                        lastTogetherType = detectedTypeKey;
-                    } else {
-                        lastTogetherType = "";
-                    }
-
-                    let bodySource = sec?.content?.body || sec?.passage || sec?.mainQuestion || "";
-                    let body = (bodySource || "").replace(/(답|정답|풀이|해설)\s*[:\.]\s*.*(\n|$)/g, "").trim();
-                    let finalAnswers = [...(sec.answers || [])];
-
-                    // 함께 풀기 유형에서 수식 중간에 라벨을 입히기 위한 필수 로직
-                    if (detectedTypeKey === TYPE_KEYS.TOGETHER_SELF && !body.includes('□') && !body.includes('_')) {
-                        const extracted = [];
-                        // 수식 블록 내의 = 뒤 내용을 찾아서 □로 바꾸고 extracted에 저장
-                        body = body.replace(/=\s*([^=\n]+?)(?=\s*\\\)|\s*\n|\s*=|$)/g, (match, p1) => {
-                            extracted.push(p1.trim());
-                            return '=\\) □ \\('; // 수식을 닫고 □ 넣고 다시 열기
-                        });
-                        body = body.replace(/\\\( *\\\)/g, ''); // 빈 수식 블록 정리
-                        if (extracted.length > 0) finalAnswers = extracted;
-                    }
-                    body = body.trim() || "";
-                    // --- 그룹화 로직 (pendingPassage 적용 및 에러 수정) ---
-                    const bodyLines = body.split('\n').filter(l => l.trim());
-                    const updatedSubQs = [];
-                    let currentSq = null;
-                    let answerPointer = 0;
-                    let pendingPassage = "";
-
-                    const isTogetherType = detectedTypeKey.includes('SELF') || detectedTypeKey === TYPE_KEYS.TOGETHER_SELECT;
-                    bodyLines.forEach((line, i) => {
-                        const trimmedLine = line.trim();
-                        if (!trimmedLine) return;
-
-                        const labelMatch = trimmedLine.match(/^[\(\[①-⑨]?(\d+)[\)\]\.]?\s*/);
-                        const isTitleLine = trimmedLine.includes("함께 풀기") || trimmedLine.includes("스스로 풀기");
-
-                        if (isTitleLine) return;
-
-                        if (labelMatch) {
-                            const rawText = trimmedLine.replace(labelMatch[0], "").trim();
-                            const blankCount = (rawText.match(/□|_/g) || []).length || 1;
-                            const chunk = finalAnswers.slice(answerPointer, answerPointer + blankCount);
-                            answerPointer += blankCount;
-
-                            // 번호 앞에 쌓인 지문이 있다면 합쳐줌
-                            const finalPassage = pendingPassage ? `${pendingPassage}\n${rawText}` : rawText;
-                            pendingPassage = "";
-
-                            currentSq = {
-                                id: Date.now() + i + Math.random(),
-                                label: labelMatch[0].trim(),
-                                passage: finalPassage,
-                                answer: chunk.length > 1 ? chunk : (chunk[0] || ""),
-                                // Together 유형일 때만 라벨 기능을 기본적으로 활성화
-                                labelEnabled: isTogetherType,
-                                explanation: ""
-                            };
-                            updatedSubQs.push(currentSq);
-                        } else if (currentSq) {
-                            currentSq.passage += "\n" + trimmedLine;
-                            const extraBlank = (trimmedLine.match(/□|_/g) || []).length;
-                            if (extraBlank > 0) {
-                                const extraChunk = finalAnswers.slice(answerPointer, answerPointer + extraBlank);
-                                const prev = Array.isArray(currentSq.answer) ? currentSq.answer : (currentSq.answer ? [currentSq.answer] : []);
-                                currentSq.answer = [...prev, ...extraChunk].length > 1 ? [...prev, ...extraChunk] : (prev[0] || extraChunk[0] || "");
-                                answerPointer += extraBlank;
-                            }
-                        } else {
-                            // 번호가 아직 안 나왔으므로 임시 보관 (여기에 rawText가 아닌 trimmedLine 사용)
-                            pendingPassage = pendingPassage ? `${pendingPassage}\n${trimmedLine}` : trimmedLine;
-                        }
-                    });
-
-
-                    // 만약 루프가 끝났는데 pendingPassage에만 데이터가 있고 문항이 하나도 안 만들어졌을 때 처리
-                    if (updatedSubQs.length === 0 && pendingPassage) {
-                        updatedSubQs.push({
-                            id: Date.now(),
-                            label: "",
-                            passage: pendingPassage,
-                            answer: finalAnswers.length > 1 ? finalAnswers : (finalAnswers[0] || ""),
-                            explanation: ""
-                        });
-                    }
-
-                    // --- [4] Builder 라벨 인식을 위한 lines 생성 로직 ---
-                    let lines = null;
-                    if (isTogetherType) {
-                        // AI가 응답한 lines에서 blank 파트만 추출하여 options 정보를 확보함
-                        const aiBlanks = [];
-                        if (Array.isArray(sec.lines)) {
-                            sec.lines.forEach(l => {
-                                (l.parts || []).forEach(p => {
-                                    if (p.type === 'blank' && Array.isArray(p.options)) aiBlanks.push(p);
-                                });
-                            });
-                        }
-
-                        let blankSerialIdx = 0;
-                        lines = updatedSubQs.map((sq, sqIdx) => {
-                            const parts = [];
-
-                            // [수정] 수식 밸런싱: 수식(\(...\)) 내부에 빈칸이 있으면 수식을 닫고 빈칸 뒤에 다시 열어줌
-                            let balancedPassage = (sq.passage || "");
-                            balancedPassage = balancedPassage.replace(/\\\((.*?)\\\)/g, (match, content) => {
-                                if (content.includes('□') || content.includes('_')) {
-                                    return `\\(${content.replace(/[□_]/g, '\\) □ \\(')}\\)`;
-                                }
-                                return match;
-                            });
-                            // 빈 수식(\( \)) 정리
-                            balancedPassage = balancedPassage.replace(/\\\( *\\\)/g, "");
-
-                            const textParts = balancedPassage.split(/□|_/);
-                            const sqAnswers = Array.isArray(sq.answer) ? sq.answer : (sq.answer ? [sq.answer] : []);
-
-                            textParts.forEach((tp, i) => {
-                                if (tp) parts.push({ type: 'text', content: tp.trim() });
-                                if (i < textParts.length - 1) {
-                                    // 1) AI가 생성한 options가 있다면 (3개 이상) 가져옴
-                                    let finalOptions = ["", "", ""];
-                                    const aiSource = aiBlanks[blankSerialIdx];
-
-                                    if (aiSource && aiSource.options?.length >= 3) {
-                                        finalOptions = aiSource.options.slice(0, 3);
-                                    } else {
-                                        // 2) 없으면 정답 + 휴리스틱 오답 생성
-                                        const ans = String(sqAnswers[i] || "정답");
-                                        const numMatch = ans.match(/^-?\d*\.?\d+$/); // 숫자 여부 확인
-
-                                        if (numMatch) {
-                                            const n = parseFloat(ans);
-                                            // 헷갈릴만한 숫자 오답: n+1, n-1 혹은 자릿수 변경 등
-                                            const w1 = n > 5 ? String(n - 1) : String(n + 2);
-                                            const w2 = n > 10 ? String(n - 10) : String(n + 10);
-                                            finalOptions = [ans, w1, w2];
-                                        } else {
-                                            finalOptions = [ans, "오답1", "오답2"];
-                                        }
-                                    }
-
-                                    parts.push({
-                                        type: 'blank',
-                                        options: finalOptions,
-                                        correctIndex: 1,
-                                        labelEnabled: false, // [FIX] Hide in ZIP engine
-                                        isLabelTarget: true,
-                                        label: "",
-                                        explanation: aiSource?.explanation || ""
-                                    });
-                                    blankSerialIdx++;
-                                }
-                            });
-                            return { label: sq.label || `(${sqIdx + 1})`, parts: parts, labelEnabled: false };
-                        });
-                    }
-
-                    let instructionRaw = sec.content.instruction || "";
-                    let finalInstruction = instructionRaw.replace(/\\\\/g, "\\");
-
-                    if (!finalInstruction) {
-                        finalInstruction = (detectedTypeKey === TYPE_KEYS.QUESTION_MATHINPUT) ? "다음을 계산하세요." : "문제를 해결해 보세요.";
-                    }
-
-                    let guideRaw = "";
-                    let guide = (guideRaw.replace(/\\\\/g, "\\")) || "";
-
-                    if (!guide) {
-                        guide = (detectedTypeKey === TYPE_KEYS.QUESTION_MATHINPUT) ? "▷ 빈칸에 들어갈 값을 입력해 보세요." : "▷ 빈칸을 클릭하여 문제를 해결해 보세요.";
-                    }
+                    // Legacy structure building for runAnalysis compatibility
+                    const finalAnswers = normalized.answers;
+                    const body = normalized.passage || normalized.guideText || "";
+                    const title = normalized.mainQuestion;
+                    const guide = (normalized.guideText || "").replace(/\\\\/g, "\\");
+                    const updatedSubQs = normalized.subQuestions;
+                    const lines = normalized.lines;
 
                     // [수정] 분할 조건: 문제 유형 또는 together.select 유형이면서 문항이 3개 이상일 때
-                    if ((type === '문제' || detectedTypeKey === TYPE_KEYS.TOGETHER_SELECT) && updatedSubQs.length >= 3) {
+                    if ((detectedTypeKey === TYPE_KEYS.QUESTION_MATHINPUT || detectedTypeKey === TYPE_KEYS.TOGETHER_SELECT) && updatedSubQs.length >= 3) {
                         for (let i = 0; i < updatedSubQs.length; i += 2) {
                             const chunk = updatedSubQs.slice(i, i + 2);
                             const chunkLines = lines ? lines.slice(i, i + 2) : null;
@@ -1214,30 +958,32 @@ const App = () => {
 
                             newPages.push({
                                 id: Date.now() + sIdx + i + imgIdx * 1000,
-                                type, typeKey: detectedTypeKey,
+                                type: detectedTypeKey === TYPE_KEYS.QUESTION_MATHINPUT ? '문제' : '함께/스스로 풀기',
+                                typeKey: detectedTypeKey,
                                 title: isFirst ? title : `${title} (계속)`,
                                 mainQuestion: isFirst ? title : `${title} (계속)`,
-                                content: finalInstruction, guide: guide,
+                                content: normalized.guideText || "", guide: guide || "문제를 해결해 보세요.",
                                 body: chunk.map(q => q.passage).join('\n'),
                                 answers: chunk.flatMap(q => Array.isArray(q.answer) ? q.answer : [q.answer]),
-                                description: [{ text: generateLogicText(type, sec.subtype, chunk.flatMap(q => Array.isArray(q.answer) ? q.answer : [q.answer])) }],
+                                description: [{ text: generateLogicText(cand.type || '문제', cand.subtype || '일반', chunk.flatMap(q => Array.isArray(q.answer) ? q.answer : [q.answer])) }],
                                 subQuestions: chunk, lines: chunkLines,
-                                figure_bounds: sec.figure_bounds || [0, 0, 0, 0],
-                                figure_alt: sec.figure_alt || "",
+                                figure_bounds: normalized.figure_bounds,
+                                figure_alt: normalized.figure_alt,
                                 contentImageUrl: contentImageUrl // [FIX] Added for zipProcessor
                             });
                         }
                     } else {
                         newPages.push({
                             id: Date.now() + sIdx + imgIdx * 1000,
-                            type, typeKey: detectedTypeKey,
+                            type: detectedTypeKey === TYPE_KEYS.QUESTION_MATHINPUT ? '문제' : '함께/스스로 풀기',
+                            typeKey: detectedTypeKey,
                             title, mainQuestion: title,
-                            content: finalInstruction, guide: guide,
+                            content: normalized.guideText || "", guide: guide || "문제를 해결해 보세요.",
                             body: body, answers: finalAnswers,
-                            description: [{ text: generateLogicText(type, sec.subtype, finalAnswers) }],
+                            description: [{ text: generateLogicText(cand.type || '문제', cand.subtype || '일반', finalAnswers) }],
                             subQuestions: updatedSubQs, lines: lines,
-                            figure_bounds: sec.figure_bounds || [0, 0, 0, 0],
-                            figure_alt: sec.figure_alt || "",
+                            figure_bounds: normalized.figure_bounds,
+                            figure_alt: normalized.figure_alt,
                             contentImageUrl: contentImageUrl // [FIX] Added for zipProcessor
                         });
                     }
@@ -1390,40 +1136,15 @@ const App = () => {
                 setBuildPages([...currentPages]);
 
                 // Analyze
-                let extracted = await analyzeImage(file);
+                let extractedRaw = await analyzeImage(file);
+                let normalized = factoryNormalize(extractedRaw, TYPE_KEYS);
 
-                // [NEW] Normalize extracted data (Ensure labels are ON by default)
-                if (extracted) {
-                    if (extracted.lines) {
-                        extracted.lines = extracted.lines.map(line => ({
-                            ...line,
-                            parts: (line.parts || []).map(part => {
-                                if (part.type === 'blank' && part.labelEnabled === undefined) {
-                                    return { ...part, labelEnabled: true };
-                                }
-                                return part;
-                            })
-                        }));
-                    }
-
-                    // [NEW] question.image 정규화 (전용 핸들러 image.js가 안전하게 처리할 수 있도록 보정)
-                    // [Safety Check] AI가 삽화 좌표를 잡았거나 설명을 썼음에도 mathinput으로 뱉었다면 image로 강제 전환
-                    const hasBounds = extracted.figure_bounds && extracted.figure_bounds.some(v => v !== 0);
-                    const hasAlt = extracted.figure_alt && extracted.figure_alt.length > 5;
-                    if ((hasBounds || hasAlt) && extracted.typeKey === TYPE_KEYS.QUESTION_MATHINPUT) {
-                        extracted.typeKey = TYPE_KEYS.QUESTION_IMAGE;
-                    }
-
-                    if (extracted.typeKey === TYPE_KEYS.QUESTION_IMAGE) {
-                        const qs = extracted.subQuestions || extracted.questions || [];
-                        if (qs.length > 0) {
-                            // 단일 문항 원칙 준수: 첫 번째 문항을 메인으로 사용
-                            extracted.subQuestions = [qs[0]];
-                        }
-                    }
+                // [NEW] Additional Safety: If it should have been together but missed lines
+                if (normalized.typeKey.includes('together')) {
+                    normalized.subQuestions = normalized.subQuestions.map(sq => ({ ...sq, labelEnabled: true }));
                 }
 
-                currentPages[targetIndex].data = extracted;
+                currentPages[targetIndex].data = normalized;
                 setBuildPages([...currentPages]);
 
                 targetIndex++;
