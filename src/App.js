@@ -127,7 +127,7 @@ const KIM_HWA_KYUNG_PROMPT = `
   - **figure_bounds:** [ymin, xmin, ymax, xmax] (0-1000 scale). If none, [0,0,0,0].
   - **figure_alt:** Brief description of the figure.
 
-  Output JSON format:
+  Output JSON format[together.self]:
   {
     "sections": [
       {
@@ -136,12 +136,26 @@ const KIM_HWA_KYUNG_PROMPT = `
         "subtype": "복합형",
         "content": { "title": "함께 풀기", "instruction": "...", "body": "전체 텍스트..." },
         "answers": ["정답"],
+        "explanation": ["해설"],
         "figure_bounds": [0,0,0,0],
         "figure_alt": "이미지 설명"
       }
     ]
   }
   
+  Output JSON format[question.image]:
+{
+  "type" : "문제 - 삽화 O",
+  "typeKey": "question.image",
+  "mainQuestion": "오른쪽 직사각형 모양의 포토 카드에서...",
+  "guideText": "",
+  "figure_bounds": [300, 600, 800, 950],
+  "figure_alt": "직사각형 ABCD와 정사각형 BEFC가 있는 포토 카드 이미지",
+  "passage": "전체 문제 텍스트...",
+  "answer": "정답",
+  "explanation": "해설"
+}
+
   
   
 `;
@@ -149,18 +163,34 @@ const KIM_HWA_KYUNG_PROMPT = `
 const UNIVERSAL_BUILDER_PROMPT = `당신은 수학 교육 콘텐츠 전문 개발자입니다. 
 이미지를 분석하여 시각적 증거(로고, 아이콘)를 기반으로 유형을 분류하고, 정해진 규격의 JSON을 생성하라.
 
-### STEP 1: 시각적 증거 분석 (Visual Evidence First)
-JSON을 생성하기 전, 다음 항목을 먼저 확인하여 내부적으로 판단하라:
-1. 상단 또는 좌측에 '함께 풀기' 로고/아이콘이 있는가?
-2. '스스로 풀기' 로고/아이콘이 있는가?
-3. 한 페이지 내에 두 로고가 모두 존재하는가?
+### STEP 1: 시각적 구조 및 아이콘 정밀 분석 (Visual & Layout First)
+JSON을 생성하기 전, 텍스트를 읽지 말고 이미지의 전체적인 '틀(Layout)'을 먼저 스캔하여 다음 3가지를 확정하라:
+1. **[함풀 아이콘]**: 좌측 상단에 '함께 풀기' 타이틀 아이콘이 존재하는가?
+2. **[스풀 아이콘]**: 우측 상단에 '스스로 풀기' 타이틀 아이콘이 존재하는가?
+3. **[레이아웃]**: 박스가 좌우 2단(2-Column)으로 나뉘어 있는가, 아니면 화면 전체를 쓰는 1단(Single-Column) 박스인가?
+4. **[삽화 및 구조]**: '함께 풀기' 템플릿 외부의 일반 '문제' 영역에 (1), (2) 같은 **소문항이 없으면서**, 우측이나 하단에 문제 풀이에 필수적인 **시각 자료(도형, 그래프, 실생활 사진 등)**가 포함되어 있는가? (단, 단순 장식용 캐릭터 일러스트는 시각 자료로 치지 않는다.)
+### STEP 2: 절대 유형 결정 규칙 (Strict Decision Table)
+STEP 1의 결과에 따라 한 치의 예외도 없이 아래 규칙에 따라 'typeKey'를 결정하라. 텍스트가 아무리 길어도 이 규칙이 우선한다.
 
-### STEP 2: 유형 결정 규칙 (Strict Decision Table)
-반드시 아래 규칙에 따라 'typeKey'를 결정하라:
-- 이미지에 '함께 풀기'와 '스스로 풀기' 이미지가 모두 포함된 경우([함께(O) + 스스로(O)]): together.self (복합형)
-- 이미지에 '함께 풀기' 이미지만 포함된 경우([함께(O) + 스스로(X)]): together.select (함께 풀기 전용)
-- 이미지에 '스스로 풀기' 이미지만 포함된 경우([함께(X) + 스스로(O)]): together.self (복합형)
-- 이미지에 '함께 풀기'와 '스스로 풀기' 이미지가 모두 포함되지 않은 경우: question.mathinput 유형
+- **[Case A] 좌우 2단 구조 + '함께 풀기' & '스스로 풀기' 아이콘 모두 존재**
+  -> **분류:** \`together.self\` (복합형)
+  -> **특징:** 왼쪽에는 완성된 풀이가 있고, 오른쪽에는 빈칸(밑줄)이 뚫려 있는 대칭 구조.
+
+- **[Case B] 1단 넓은 구조 + '함께 풀기' 아이콘만 단독 존재 ('스스로 풀기' 없음)**
+  -> **분류:** \`together.select\` (선택형/단독형)
+  -> **특징:** 가로로 긴 하나의 박스 안에 빈칸(□)들이 포함된 풀이 과정이 나열됨.
+
+  - **[Case C] 위 두 아이콘(함풀, 스풀)은 없지만, 화면 내에 문제 풀이를 위해 참고해야 할 시각 자료(삼각형/사각형 등 기하 도형, 그래프, 실생활 사진, 포토카드 등)가 단 1개라도 존재하는 경우**
+  -> **분류:** \`question.image\` (삽화 포함 단일 문제)
+  -> **필살 규칙:** 본문 시작이 "문제 1", "2.", "예제" 등으로 시작하더라도, 옆이나 아래에 그림이 붙어있다면 무조건 mathinput이 아닌 **image 유형**을 선택하라. (그림이 있는 문제는 특수 레이아웃이 필수이기 때문)
+  -> **분류 힌트:** 본문에 "오른쪽 (그림/직사각형/삼각형/도형)에서", "그래프와 같이" 등의 시각적 참조 어구가 있다면 100% 삽화가 존재하는 것으로 간주하고 이 유형을 선택하라.
+  -> **특징:** 삼각형, 사각형 같은 단순 기하 도형도 반드시 '삽화'로 간주하여 좌표(\`figure_bounds\`)를 추출해야 함.
+
+- **[Case D] 위 세 케이스(A, B, C)에 해당하지 않는 순수 텍스트와 수식만 있는 경우**
+  -> **분류:** \`question.mathinput\` (일반 문제)
+  -> **특징:** 특정 박스 템플릿이나 삽화 없이 일반적인 발문과 수식만 나열됨.
+- **텍스트가 많더라도 '풀이 과정'의 논리를 가지고 있다면 together.self 유형**
+**중요: 텍스트 양에 상관없이 본문의 '맥락'이 과정형이면 반드시 'lines' 구조를 사용하세요.**
 
 ### STEP 3: 스스로 풀기 정답 추론 특수 규칙 (Crucial for together.self)
 '스스로 풀기'의 빈칸(밑줄) 정답을 추출할 때는 절대 임의로 계산 방식을 생략하거나 건너뛰지 마라. 반드시 짝꿍인 '함께 풀기'의 풀이 과정을 1:1 템플릿으로 사용하여 아래의 논리적 흐름(Chain of Thought)을 따라라:
@@ -176,6 +206,8 @@ JSON을 생성하기 전, 다음 항목을 먼저 확인하여 내부적으로 �
 **유형별 데이터 구조:**
 
 1. **together 계열 (together.self, together.select)**:
+- **[절대 규칙: 병합 생성]** 하나의 '함께 풀기'에 있는 내용은 텍스트가 아무리 길고 수식이 많더라도 **절대 여러 개의 JSON 객체(section/activity)로 쪼개지 마라.** 단 1개의 객체 안에서 모두 처리해야 한다.
+   - 풀이 과정이 길다면 객체를 나누는 것이 아니라, 내부의 'lines' 배열에 항목을 계속 추가하는 방식으로 해결하라. 
    - 'lines' 배열을 사용하세요.
    - 각 line은 'label'과 'parts' 배열을 가집니다.
    - 'parts'의 각 항목은 { 'type': 'text', 'content': '...' } 또는 { 'type': 'blank', 'options': [...], 'correctIndex': n, 'explanation': '...' } 입니다.
@@ -183,14 +215,19 @@ JSON을 생성하기 전, 다음 항목을 먼저 확인하여 내부적으로 �
      - Option 0(정답): 실제 수치/텍스트.
      - Option 1, 2(오답): 학생들이 가장 많이 하는 실수(부호 오류, 연산 순서 오류, 단위 누락 등)를 반영하여 **현실적이고 매력적인 오답**을 생성하세요.
 
-2. **question / concept 계열 (question.mathinput, concept)**:
+2. **question.mathinput**:
    - 'subQuestions' 배열을 사용하세요.
    - 각 항목은 { 'label': '...', 'passage': '...', 'answer': '...', 'explanation': '...' } 형태입니다.
 
+3. **image 단일형 (question.image)**:
+   - 기하 도형, 실생활 사진 등 문제 풀이에 필수적인 이미지의 좌표를 'figure_bounds'에 정확히 [ymin, xmin, ymax, xmax] (0~1000 스케일)로 추출하세요. (단순 장식용 캐릭터는 추출하지 마세요)
+   - 'figure_alt'에 이미지의 상세한 설명을 작성하세요.
+   - 소문항이 있을 경우 view를 추가하세요. 
+   - 단일 문제이므로 'subQuestions' 배열에 **단 1개의 객체**만 생성하여 긴 문제 텍스트 전체를 'passage'나 'promptLatex'에 담으세요.
 **최종 JSON 응답은 마크다운 코드 블록 없이 순수 JSON만 반환하세요.**
 JSON 구조 예시:
 {
-  "typeKey": "question.mathinput",
+  "typeKey": "question.image",
   "mainQuestion": "문제 제목",
   "guideText": "가이드 텍스트",
   "figure_bounds": [0,0,0,0],
@@ -317,6 +354,28 @@ const buildDraftInputConfig = ({
     // 3. Together Type or Standard Input
     const finalTypeKey = typeKey || (isTogether ? "together.custom" : "input.custom");
 
+    // [NEW] Question Image Logic
+    if (finalTypeKey === TYPE_KEYS.QUESTION_IMAGE) {
+        return {
+            typeKey: TYPE_KEYS.QUESTION_IMAGE,
+            baseTemplateTypeKey: TYPE_KEYS.QUESTION_IMAGE, // [UPDATE] 전용 엔진 사용
+            manifest: {
+                rowTemplate: ".flex-col.ai-c", // [UPDATE] 전용 템플릿 구조
+            },
+            strategy: {
+                name: "input_v1", // 기존 입력 전략 재활용 가능
+                options: {
+                    inputKind,
+                    hasImage: true,
+                    headerUrl,
+                    contentImageUrl,
+                    figure_bounds,
+                    figure_alt
+                }
+            }
+        };
+    }
+
     return {
         typeKey: finalTypeKey,
         baseTemplateTypeKey: isTogether ? TYPE_KEYS.TOGETHER_SELECT : TYPE_KEYS.QUESTION_MATHINPUT,
@@ -355,6 +414,10 @@ const App = () => {
         {
             typeKey: TYPE_KEYS.TOGETHER_SELF,
             label: "함께 풀기 + 스스로 풀기",
+        },
+        {
+            typeKey: TYPE_KEYS.QUESTION_IMAGE,
+            label: "문제 > 삽화 포함형",
         }
     ];
 
@@ -380,6 +443,7 @@ const App = () => {
 
     const [removePagination, setRemovePagination] = useState(true);
     const [zoomedImage, setZoomedImage] = useState(null);
+    const [showCropModal, setShowCropModal] = useState(false); // [NEW]
 
     // Derived Logic
     const activeData = buildPages[activePageIndex]?.data;
@@ -557,6 +621,16 @@ const App = () => {
             );
         }
 
+        if (typeKey === TYPE_KEYS.QUESTION_IMAGE) {
+            return (
+                <MathInputEditor
+                    currentData={currentData}
+                    onChange={updateCurrentPageData}
+                    isImageType={true}
+                />
+            );
+        }
+
         return <GenericFallbackEditor currentData={currentData} onChange={updateCurrentPageData} />;
     }
 
@@ -652,11 +726,32 @@ const App = () => {
             return;
         }
 
+        // [NEW] 라벨 노출(labelEnabled) 설정 반영 (TogetherSelf용)
+        const processedBuildPages = buildPages.map(page => {
+            if (page.data && page.data.typeKey === TYPE_KEYS.TOGETHER_SELF) {
+                const newLines = (page.data.lines || []).map(line => ({
+                    ...line,
+                    parts: (line.parts || []).map(part => {
+                        if (part.type === 'blank' && part.labelEnabled === false) {
+                            // [FIX] 라벨 노출이 꺼져있으면 □ 대신 실제 정답 텍스트를 주입
+                            const options = Array.isArray(part.options) ? part.options : [];
+                            const idx = (parseInt(part.correctIndex, 10) || 1) - 1;
+                            const answer = options[idx] ?? "";
+                            return { ...part, type: 'text', content: answer };
+                        }
+                        return part;
+                    })
+                }));
+                return { ...page, data: { ...page.data, lines: newLines } };
+            }
+            return page;
+        });
+
         // 최종 실행
         processAndDownloadZip({
             templates,
             selectedTemplateId: finalTemplateId,
-            buildPages,
+            buildPages: processedBuildPages, // 가공된 데이터 전달
             setStatusMessage,
             setIsProcessing,
             removePagination,
@@ -902,14 +997,14 @@ const App = () => {
                 };
 
                 const pageSections = deepRestore(parsed.sections || []);
-                const hasTogether = pageSections.some(s => (s.content.title || "").includes("함께"));
-                const hasSelf = pageSections.some(s => (s.content.title || "").includes("스스로"));
+                const hasTogether = pageSections.some(s => (s?.content?.title || "").includes("함께"));
+                const hasSelf = pageSections.some(s => (s?.content?.title || "").includes("스스로"));
                 const isTogetherSelfSet = hasTogether && hasSelf;
 
                 let lastTogetherType = ""; // [추가] 이전 섹션의 together 유형 추적
 
                 pageSections.forEach((sec, sIdx) => {
-                    const title = sec.content.title || "";
+                    const title = sec?.content?.title || sec?.mainQuestion || "";
                     const secTitle = title.toLowerCase();
                     const isThisSecSelf = secTitle.includes('스스로');
                     const isThisSecTogether = secTitle.includes('함께');
@@ -944,7 +1039,8 @@ const App = () => {
                         lastTogetherType = "";
                     }
 
-                    let body = (sec.content.body || "").replace(/(답|정답|풀이|해설)\s*[:\.]\s*.*(\n|$)/g, "").trim();
+                    let bodySource = sec?.content?.body || sec?.passage || sec?.mainQuestion || "";
+                    let body = (bodySource || "").replace(/(답|정답|풀이|해설)\s*[:\.]\s*.*(\n|$)/g, "").trim();
                     let finalAnswers = [...(sec.answers || [])];
 
                     // 함께 풀기 유형에서 수식 중간에 라벨을 입히기 위한 필수 로직
@@ -1294,7 +1390,39 @@ const App = () => {
                 setBuildPages([...currentPages]);
 
                 // Analyze
-                const extracted = await analyzeImage(file);
+                let extracted = await analyzeImage(file);
+
+                // [NEW] Normalize extracted data (Ensure labels are ON by default)
+                if (extracted) {
+                    if (extracted.lines) {
+                        extracted.lines = extracted.lines.map(line => ({
+                            ...line,
+                            parts: (line.parts || []).map(part => {
+                                if (part.type === 'blank' && part.labelEnabled === undefined) {
+                                    return { ...part, labelEnabled: true };
+                                }
+                                return part;
+                            })
+                        }));
+                    }
+
+                    // [NEW] question.image 정규화 (전용 핸들러 image.js가 안전하게 처리할 수 있도록 보정)
+                    // [Safety Check] AI가 삽화 좌표를 잡았거나 설명을 썼음에도 mathinput으로 뱉었다면 image로 강제 전환
+                    const hasBounds = extracted.figure_bounds && extracted.figure_bounds.some(v => v !== 0);
+                    const hasAlt = extracted.figure_alt && extracted.figure_alt.length > 5;
+                    if ((hasBounds || hasAlt) && extracted.typeKey === TYPE_KEYS.QUESTION_MATHINPUT) {
+                        extracted.typeKey = TYPE_KEYS.QUESTION_IMAGE;
+                    }
+
+                    if (extracted.typeKey === TYPE_KEYS.QUESTION_IMAGE) {
+                        const qs = extracted.subQuestions || extracted.questions || [];
+                        if (qs.length > 0) {
+                            // 단일 문항 원칙 준수: 첫 번째 문항을 메인으로 사용
+                            extracted.subQuestions = [qs[0]];
+                        }
+                    }
+                }
+
                 currentPages[targetIndex].data = extracted;
                 setBuildPages([...currentPages]);
 
@@ -1363,8 +1491,31 @@ const App = () => {
         }
     };
 
+    useEffect(() => {
+        const handleOpen = () => setShowCropModal(true);
+        window.addEventListener('open-crop-modal', handleOpen);
+        return () => window.removeEventListener('open-crop-modal', handleOpen);
+    }, []);
+
+    // [NEW] Crop Logic
+    const onCropComplete = (bounds) => {
+        const nextPages = [...buildPages];
+        const page = nextPages[activePageIndex];
+        if (page && page.data) {
+            page.data.figure_bounds = bounds;
+            setBuildPages(nextPages);
+        }
+        setShowCropModal(false);
+    };
+
     return (
         <div className="flex h-screen bg-[#F8FAFC] text-slate-800 overflow-hidden selection:bg-indigo-500 selection:text-white">
+            <CropModal
+                isOpen={showCropModal}
+                image={buildPages[activePageIndex]?.image}
+                onClose={() => setShowCropModal(false)}
+                onComplete={onCropComplete}
+            />
             <StatusModal status={statusMessage} onClose={() => setStatusMessage(null)} />
             <ZoomModal imageUrl={zoomedImage} onClose={() => setZoomedImage(null)} />
 
@@ -1896,9 +2047,9 @@ const App = () => {
                                                     })()}
                                                     <div className="space-y-2 mt-4">
                                                         {(() => {
-                                                            const isTogetherType = activeData.typeKey?.startsWith("together") || activeData.type?.includes("함께");
-                                                            const title = activeData.title || "";
-                                                            const typeKey = activeData.typeKey;
+                                                            const isTogetherType = activeData?.typeKey?.startsWith("together") || activeData?.type?.includes("함께");
+                                                            const title = activeData?.title || activeData?.mainQuestion || "";
+                                                            const typeKey = activeData?.typeKey;
 
                                                             if (isTogetherType && activeData.lines && activeData.lines.length > 0) {
                                                                 let globalBlankCounter = 0;
@@ -1920,7 +2071,14 @@ const App = () => {
                                                                                             if (part.type === 'blank') {
                                                                                                 globalBlankCounter++;
                                                                                                 const isSelf = title.includes("스스로");
+                                                                                                const showLabel = isSelf || (part.labelEnabled !== false); // 기본값 true
                                                                                                 const ans = (part.options && part.options[0]) || "";
+
+                                                                                                if (!showLabel) {
+                                                                                                    // 라벨 노출 꺼져있으면 정답 정답 직접 렌더링
+                                                                                                    return <span key={pi} className="mx-1 font-bold text-blue-600">{renderMathToHTML(ans, typeKey, title)}</span>;
+                                                                                                }
+
                                                                                                 return (
                                                                                                     <span key={pi} className="inline-flex items-center align-middle mx-1 relative">
                                                                                                         <span className={`inline-flex items-center justify-center rounded-md border-2 transition-all relative ${isSelf
@@ -2051,8 +2209,22 @@ const App = () => {
                                 <div className="bg-white p-10 rounded-[4.5rem] border border-slate-200 shadow-sm h-full flex-1 overflow-y-auto custom-scrollbar">
                                     {buildPages[activePageIndex]?.data ? (
                                         <div className="w-full space-y-10 animate-in slide-in-from-right-10 duration-500">
-                                            <div className="flex items-center justify-between mt-8">
-                                                <h3 className="text-3xl font-extrabold tracking-tight text-slate-900">View {buildPages[activePageIndex].id} 내용 수정</h3>
+                                            <div className="flex flex-col gap-3 mt-8 mb-2">
+                                                <div className="flex items-center justify-between">
+                                                    <h3 className="text-3xl font-extrabold tracking-tight text-slate-900">
+                                                        View {buildPages[activePageIndex].id} 내용 수정
+                                                    </h3>
+                                                </div>
+                                                <div className="flex justify-end">
+                                                    <a
+                                                        href="https://www.processon.io/ko/latex"
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 hover:text-slate-900 rounded-xl transition-all flex items-center gap-1 shadow-sm"
+                                                    >
+                                                        LaTeX 수식 참고 사이트 ↗
+                                                    </a>
+                                                </div>
                                             </div>
                                             <div className="p-8 bg-white rounded-[2.5rem] border border-slate-200 shadow-sm space-y-6">
                                                 <div>
@@ -2082,7 +2254,7 @@ const App = () => {
                         </div>
                     )}
 
-                    {/* {activeTab === 'library' && (
+                    {activeTab === 'library' && (
                         <div className="grid grid-cols-2 gap-12 animate-in fade-in duration-500 pb-20">
                             <div className="bg-white p-12 rounded-[3.5rem] border border-slate-200 shadow-sm relative overflow-hidden group flex flex-col">
                                 <h3 className="text-3xl font-black mb-8 text-slate-800 tracking-tight">Add New Template</h3>
@@ -2121,7 +2293,7 @@ const App = () => {
                                 </div>
                             </div>
                         </div>
-                    )} */}
+                    )}
                 </div>
             </main>
 
@@ -2136,6 +2308,98 @@ const App = () => {
         </div>
     );
 };
+
+// [NEW] Crop Modal Component
+function CropModal({ isOpen, image, onClose, onComplete }) {
+    if (!isOpen || !image) return null;
+
+    const [startPos, setStartPos] = useState(null);
+    const [currentPos, setCurrentPos] = useState(null);
+    const imgRef = useRef(null);
+
+    const handleMouseDown = (e) => {
+        const rect = imgRef.current.getBoundingClientRect();
+        setStartPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+        setCurrentPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    };
+
+    const handleMouseMove = (e) => {
+        if (!startPos) return;
+        const rect = imgRef.current.getBoundingClientRect();
+        setCurrentPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    };
+
+    const handleMouseUp = () => {
+        if (!startPos || !currentPos) return;
+
+        const rect = imgRef.current.getBoundingClientRect();
+        const w = rect.width;
+        const h = rect.height;
+
+        const xmin = Math.min(startPos.x, currentPos.x);
+        const xmax = Math.max(startPos.x, currentPos.x);
+        const ymin = Math.min(startPos.y, currentPos.y);
+        const ymax = Math.max(startPos.y, currentPos.y);
+
+        // Convert to 0-1000 scale
+        const bounds = [
+            Math.round((ymin / h) * 1000),
+            Math.round((xmin / w) * 1000),
+            Math.round((ymax / h) * 1000),
+            Math.round((xmax / w) * 1000)
+        ];
+
+        onComplete(bounds);
+        setStartPos(null);
+        setCurrentPos(null);
+    };
+
+    const selectionStyle = startPos && currentPos ? {
+        left: Math.min(startPos.x, currentPos.x),
+        top: Math.min(startPos.y, currentPos.y),
+        width: Math.abs(currentPos.x - startPos.x),
+        height: Math.abs(currentPos.y - startPos.y),
+        position: 'absolute',
+        border: '2px solid #6366f1',
+        backgroundColor: 'rgba(99, 102, 241, 0.2)',
+        pointerEvents: 'none'
+    } : null;
+
+    return (
+        <div className="fixed inset-0 bg-black/80 z-[400] flex items-center justify-center p-10 animate-in fade-in">
+            <div className="bg-white rounded-[2.5rem] overflow-hidden max-w-5xl w-full flex flex-col shadow-2xl">
+                <div className="p-6 border-bottom flex items-center justify-between bg-slate-50">
+                    <div>
+                        <h3 className="text-xl font-black text-slate-900">삽화 영역 지정</h3>
+                        <p className="text-sm text-slate-500 font-medium mt-1">마우스로 드래그하여 삽화 영역을 선택하세요.</p>
+                    </div>
+                    <button onClick={onClose} className="p-3 hover:bg-slate-200 rounded-full transition-all text-slate-400">
+                        <X size={24} />
+                    </button>
+                </div>
+                <div className="flex-1 overflow-auto p-10 bg-slate-200 flex items-center justify-center">
+                    <div className="relative inline-block cursor-crosshair shadow-2xl"
+                        onMouseDown={handleMouseDown}
+                        onMouseMove={handleMouseMove}
+                        onMouseUp={handleMouseUp}
+                    >
+                        <img
+                            ref={imgRef}
+                            src={image}
+                            className="max-w-full block select-none"
+                            draggable={false}
+                            alt="Crop target"
+                        />
+                        {selectionStyle && <div style={selectionStyle} />}
+                    </div>
+                </div>
+                <div className="p-6 bg-slate-50 flex justify-end gap-3">
+                    <button onClick={onClose} className="px-8 py-4 text-slate-500 font-bold hover:bg-slate-200 rounded-2xl transition-all">취소</button>
+                </div>
+            </div>
+        </div>
+    );
+}
 
 export default App;
 
@@ -2219,8 +2483,34 @@ function SubQuestionsEditor({ currentData, onChange }) {
     );
 }
 
-function MathInputEditor({ currentData, onChange }) {
-    return <SubQuestionsEditor currentData={currentData} onChange={onChange} />;
+function MathInputEditor({ currentData, onChange, isImageType = false }) {
+    const handleOpenCrop = () => {
+        // [FIX] 전역 상태를 통해 모달을 엽니다.
+        // 이 함수는 App 컴포넌트에서 prop으로 전달받아야 하지만, 
+        // 현재 구조상 MathInputEditor가 App 내부에 정의되어 있으므로 직접 접근 가능할 수 있습니다.
+        // 만약 독립 함수라면 App에서 넘겨줘야 합니다.
+    };
+
+    return (
+        <div className="space-y-6">
+            {isImageType && (
+                <div className="p-6 bg-indigo-50 border border-indigo-100 rounded-[2.5rem] flex items-center justify-between shadow-sm">
+                    <div>
+                        <div className="text-xs font-black text-indigo-600 uppercase tracking-widest mb-1">삽화 제어</div>
+                        <div className="text-sm font-bold text-slate-600">문제에 포함된 삽화 영역을 직접 지정하세요.</div>
+                    </div>
+                    <button
+                        onClick={() => window.dispatchEvent(new CustomEvent('open-crop-modal'))}
+                        className="px-6 py-3 bg-indigo-600 text-white rounded-2xl font-black text-xs hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 flex items-center gap-2"
+                    >
+                        <Maximize2 size={16} />
+                        삽화 영역 지정하기
+                    </button>
+                </div>
+            )}
+            <SubQuestionsEditor currentData={currentData} onChange={onChange} />
+        </div>
+    );
 }
 
 function TogetherSelectEditor({ currentData, onChange }) {
@@ -2327,15 +2617,21 @@ function ensureTogetherSelf(data) {
 
 function TogetherSelfEditor({ currentData, onChange, onClickLabelZip }) {
     const lines = Array.isArray(currentData?.lines) ? currentData.lines : [];
-    const isSelfStudy = !!currentData?.strategy?.options?.isSelfStudy;
+    // [FIX] strategy 옵션에 의존하지 않고 로컬 스테이트로 탭 관리
+    const [activeTab, setActiveTab] = React.useState("together"); // "together" | "self"
 
     // blank 파트만 한 번에 모으기(순서 유지)
-    const blanks = [];
-    lines.forEach((line, li) => {
-        (line.parts || []).forEach((part, pi) => {
-            if (part?.type === "blank") blanks.push({ li, pi, part });
+    const getBlanks = (targetLines) => {
+        const blks = [];
+        targetLines.forEach((line, li) => {
+            (line.parts || []).forEach((part, pi) => {
+                if (part?.type === "blank") blks.push({ li, pi, part });
+            });
         });
-    });
+        return blks;
+    };
+
+    const blanks = getBlanks(lines);
 
     // 편집 유틸
     const patchPart = (li, pi, nextPart) => {
@@ -2352,7 +2648,6 @@ function TogetherSelfEditor({ currentData, onChange, onClickLabelZip }) {
     };
 
     const setBlankAnswer = (li, pi, part, value) => {
-        // 엔진(base.js)이 options+correctIndex로 답을 뽑으니까 그 규칙 그대로 맞춤
         patchPart(li, pi, { ...part, options: [value], correctIndex: 1 });
     };
 
@@ -2360,61 +2655,103 @@ function TogetherSelfEditor({ currentData, onChange, onClickLabelZip }) {
         patchPart(li, pi, { ...part, labelEnabled: !part.labelEnabled });
     };
 
-    // 해설 1개만: 첫 번째 blank에만 저장
-    const firstBlank = blanks[0];
-    const singleExplanation =
-        firstBlank?.part?.explanation || "";
+    // 텍스트 소스 편집 (함께 풀기 전용)
+    const fullText = lines.map(l => {
+        return (l.parts || []).map(p => p.type === 'blank' ? '□' : p.content).join('');
+    }).join('\n');
 
-    const setSingleExplanation = (value) => {
-        if (!firstBlank) return;
-        patchPart(firstBlank.li, firstBlank.pi, { ...firstBlank.part, explanation: value });
+    const handleTextChange = (newText) => {
+        // 기존 blanks 데이터 백업 (순서대로)
+        const oldBlanks = blanks.map(b => ({ ...b.part }));
+
+        let blankIdx = 0;
+        const newLines = newText.split('\n').map((txt, idx) => {
+            const parts = [];
+            const segments = txt.split(/(□|_)/g);
+            segments.forEach(seg => {
+                if (seg === '□' || seg === '_') {
+                    // 기존 데이터가 있으면 재사용, 없으면 초기값
+                    const oldPart = oldBlanks[blankIdx];
+                    parts.push({
+                        type: 'blank',
+                        options: oldPart ? [...oldPart.options] : [""],
+                        correctIndex: oldPart ? oldPart.correctIndex : 1,
+                        labelEnabled: oldPart ? oldPart.labelEnabled : (activeTab === 'together'),
+                        isLabelTarget: true,
+                        explanation: oldPart ? oldPart.explanation : ""
+                    });
+                    blankIdx++;
+                } else if (seg) {
+                    parts.push({ type: 'text', content: seg });
+                }
+            });
+            return { label: `(${idx + 1})`, parts, labelEnabled: activeTab === 'together' };
+        });
+        onChange({ ...currentData, lines: newLines });
+    };
+
+    const insertLabel = () => {
+        const textarea = document.getElementById('together-text-source');
+        if (!textarea) return;
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const text = textarea.value;
+        const before = text.substring(0, start);
+        const after = text.substring(end);
+        handleTextChange(before + "□" + after);
     };
 
     return (
-        <div className="animate-in fade-in duration-00">
+        <div className="animate-in fade-in duration-500 space-y-6">
+            {/* Tab Navigation */}
+            <div className="flex bg-slate-100 p-1.5 rounded-2xl w-fit">
+                <button
+                    onClick={() => setActiveTab("together")}
+                    className={`px-6 py-2.5 rounded-xl font-black text-sm transition-all ${activeTab === "together" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                >
+                    함께 풀기 (Together)
+                </button>
+                <button
+                    onClick={() => setActiveTab("self")}
+                    className={`px-6 py-2.5 rounded-xl font-black text-sm transition-all ${activeTab === "self" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                >
+                    스스로 풀기 (Self)
+                </button>
+            </div>
 
             {/* Together Section */}
-            {!isSelfStudy && (
-                <div className="p-8 bg-amber-50/60 border border-amber-200 rounded-[2.5rem] space-y-5">
-                    <div>
-                        <div className="text-sm font-bold text-slate-600 mt-1">
-                            각 딱지(blank)의 숫자 값 + 라벨 표시 여부
+            {activeTab === "together" && (
+                <div className="p-8 bg-amber-50/60 border border-amber-200 rounded-[2.5rem] space-y-6">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <div className="text-xs font-black uppercase tracking-widest text-amber-600">함께 풀기 설정</div>
+                            <div className="text-sm font-bold text-slate-600 mt-1">제안된 라벨을 검토 후 onoff 여부를 설정해 주세요.</div>
                         </div>
+
                     </div>
+
 
                     <div className="space-y-3">
                         {blanks.map(({ li, pi, part }, idx) => (
-                            <div
-                                key={`${li}-${pi}`}
-                                className="flex items-center gap-3 bg-white rounded-2xl border border-amber-100 p-4"
-                            >
-                                <div className="w-10 h-10 rounded-xl bg-amber-500 text-white font-black flex items-center justify-center">
+                            <div key={`${li}-${pi}`} className="flex items-center gap-3 bg-white/80 backdrop-blur-sm rounded-2xl border border-amber-100 p-4 shadow-sm">
+                                <div className="w-10 h-10 rounded-xl bg-amber-500 text-white font-black flex items-center justify-center shadow-lg shadow-amber-100">
                                     {idx + 1}
                                 </div>
-
-                                <div className="flex-1 grid grid-cols-3 gap-3 items-center">
-                                    <div className="col-span-2">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">
-                                            라벨 번호
-                                        </label>
+                                <div className="flex-1 grid grid-cols-4 gap-4 items-center">
+                                    <div className="col-span-3">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">라벨 번호(정답)</label>
                                         <input
-                                            type="number"
-                                            className="w-full p-3 rounded-xl border border-slate-200 font-bold"
+                                            type="text"
+                                            className="w-full p-3 rounded-xl border border-slate-200 font-bold focus:border-amber-400 outline-none transition-all"
                                             value={getBlankAnswer(part)}
                                             onChange={(e) => setBlankAnswer(li, pi, part, e.target.value)}
                                         />
                                     </div>
-
                                     <div>
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">
-                                            Label
-                                        </label>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">라벨 노출</label>
                                         <button
                                             onClick={() => toggleLabel(li, pi, part)}
-                                            className={`w-full py-3 rounded-xl font-black text-xs transition-all ${part.labelEnabled
-                                                ? "bg-slate-900 text-white"
-                                                : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                                                }`}
+                                            className={`w-full py-3 rounded-xl font-black text-xs transition-all ${part.labelEnabled ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
                                         >
                                             {part.labelEnabled ? "ON" : "OFF"}
                                         </button>
@@ -2422,36 +2759,34 @@ function TogetherSelfEditor({ currentData, onChange, onClickLabelZip }) {
                                 </div>
                             </div>
                         ))}
-
-                        {blanks.length === 0 && (
-                            <div className="p-6 bg-white rounded-2xl border border-amber-100 text-slate-400 font-bold">
-                                데이터가 없습니다. 다시 교과서 분석을 진행해 주세요.
-                            </div>
-                        )}
                     </div>
                 </div>
             )}
 
             {/* Self Section */}
-            {isSelfStudy && (
+            {activeTab === "self" && (
                 <div className="p-8 bg-indigo-50/60 border border-indigo-200 rounded-[2.5rem] space-y-6">
-
+                    <div>
+                        <div className="text-xs font-black uppercase tracking-widest text-indigo-600">스스로 풀기 설정</div>
+                        <div className="text-sm font-bold text-slate-600 mt-1">빈칸에 들어갈 정답을 입력하세요.</div>
+                    </div>
                     <div className="grid grid-cols-2 gap-4">
                         {blanks.map(({ li, pi, part }, idx) => (
-                            <div key={`self-${li}-${pi}`} className="bg-white rounded-2xl border border-indigo-100 p-4">
-                                <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2">
-                                    빈칸 {idx + 1}
-                                </label>
+                            <div key={`self-${li}-${pi}`} className="bg-white rounded-2xl border border-indigo-100 p-5 shadow-sm space-y-2">
+                                <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block">빈칸 {idx + 1}</label>
                                 <input
-                                    className="w-full p-3 rounded-xl border border-slate-200 font-bold"
+                                    className="w-full p-3 rounded-xl border border-slate-200 font-bold focus:border-indigo-400 outline-none transition-all"
                                     value={getBlankAnswer(part)}
                                     onChange={(e) => setBlankAnswer(li, pi, part, e.target.value)}
                                 />
                             </div>
                         ))}
                     </div>
-
-
+                    {blanks.length === 0 && (
+                        <div className="p-10 text-center bg-white rounded-2xl border border-dashed border-slate-200 text-slate-400 font-bold">
+                            함께 풀기 섹션에서 □ 기호를 추가하면 여기에 입력창이 나타납니다.
+                        </div>
+                    )}
                 </div>
             )}
         </div>

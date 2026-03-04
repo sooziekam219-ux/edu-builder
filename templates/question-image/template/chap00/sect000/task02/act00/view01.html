@@ -1,0 +1,94 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>문제 3</title>
+    <link rel="stylesheet" type="text/css" href="../../../../common1/style/common.css">
+    <style>
+        .inp-wrap p{padding: 0 20px;}
+    </style>
+</head>
+<body>
+    <div class="wrap question">
+        <header>
+            <h1><img src="images/tit-question3.png" alt="문제 3" class="lang-image"></h1>
+        </header>
+        <main>
+            <div class="q mb30">
+                <p>다음 그림에서 <span translate="no">\(\rm \triangle ABC\)</span>가 <span translate="no">\(\rm \overline{AB} = \overline{AC}\)</span>인 이등변삼각형이고 <span translate="no">\(\rm \overline{BC} = \overline{DC}\)</span>, <span translate="no">\(\rm\angle A = 40^\circ\)</span>일 때, <span translate="no">\(\angle x\)</span>의 크기를 구하시오.<br>
+                    <span class="stxt">▷ 빈칸에 들어갈 값을 입력해 보세요.</span>
+                </p>
+            </div>
+
+           <div class="flex-col ai-c">
+                <!-- 이미지 -->
+                <div class="text-center">
+                    <img src="images/img1.png" alt="..." class="w400">
+                </div>
+
+                <!-- 입력 영역 -->
+                <div class="flex-row jc-e" style="width: 100%;">
+                    <div class="flex-col ai-e" style="margin-top: -152px;">
+                    <div class="inp-wrap">
+                        <span translate="no">\(\angle x =\)</span>
+                        <div class="w100">
+                        <button type="button" class="btn-math" aria-label="정답입력란"></button>
+                        <p id="QuizInput1" translate="no"></p>
+                        <div class="correct" translate="no" aria-label="정답은 칠십입니다."></div>
+                        </div>
+                        <span>\(^\circ\)</span>
+                    </div>
+
+                    <div class="btn-wrap">
+                        <button type="button" class="btn btn-solve">풀이</button>
+                        <button type="button" class="btn btn-retry">다시 하기</button>
+                        <button type="button" class="btn btn-ok">확인</button>
+                    </div>
+                    </div>
+                </div>
+                </div>
+
+
+        </main>
+
+        <div class="pop feedback" aria-atomic="true" aria-live="polite" role="alert" aria-labelledby="feedbacktext">
+            <button type="button" class="btn-close">팝업 닫기</button>
+            <div class="character">
+                <p id="feedbacktext"></p>
+                <div class="btn-wrap">
+                    <button type="button" class="btn btn-pop-answer">정답 보기</button>
+                    <button type="button" class="btn btn-pop-retry">재도전</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="pop solution">
+            <div aria-modal="true" role="dialog">
+                <div role="document">
+                    <button type="button" class="btn-close">닫기</button>
+                    <div class="solution-cont">
+                        <span class="cont" aria-label="">
+                            <p><span translate="no">\(\triangle \mathrm{ABC}\)</span>가 이등변삼각형이므로</p>
+                            <p><span translate="no">\(\angle \mathrm{B} = \dfrac{1}{2} \times (180^\circ - 40^\circ) = 70^\circ\)</span></p>
+                            <p><span translate="no">\(\triangle \mathrm{CBD}\)</span>는 <span translate="no">\(\overline{\mathrm{CB}} = \overline{\mathrm{CD}}\)</span>인 이등변삼각형이므로</p>
+                            <p><span translate="no">\(\angle x = \angle \mathrm{B} = 70^\circ\)</span></p>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="../../../../common1/js/jquery-3.7.1.min.js"></script>
+    <script src="../../../../common1/js/jquery-ui.min.js"></script>
+    <script src="../../../../common1/js/jquery.ui.touch-punch.min.js"></script>
+    <script src="js/view_pageinfo.js"></script>
+    <script src="https://aidtcdn.aitextbook.co.kr/content/2025/js/dtext_api_wrapper_opr.js"></script>
+    <script src="../../../../common1/js/common.js"></script>
+    <script src="../../../../common1/js/tex-svg.js"></script>
+    <script src="js/act.js"></script>
+
+</body>
+</html>

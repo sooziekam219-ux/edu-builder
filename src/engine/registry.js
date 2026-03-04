@@ -2,11 +2,13 @@ import { TYPE_KEYS } from "./typeKeys";
 
 import questionSelect from "./handlers/question/select";
 import questionMathinput from "./handlers/question/mathinput";
+import questionImage from "./handlers/question/image";
 import togetherSelect from "./handlers/together/select";
 
 const REGISTRY = {
   [TYPE_KEYS.QUESTION_SELECT]: questionSelect,
   [TYPE_KEYS.QUESTION_MATHINPUT]: questionMathinput,
+  [TYPE_KEYS.QUESTION_IMAGE]: questionImage,
   [TYPE_KEYS.TOGETHER_SELECT]: togetherSelect,
 };
 

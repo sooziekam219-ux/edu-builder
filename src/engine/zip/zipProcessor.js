@@ -4,6 +4,7 @@ import { collection, getDocs } from "firebase/firestore";
 //import sanitizeLaTeX from "../utils/sanitize";
 import togetherSelect from "./handlers/together/select";
 import questionMathinput from "./handlers/question/mathinput"; // 이미 쓰고 있으면 그걸로
+import questionImage from "./handlers/question/image";
 import questionTextinput from "./handlers/question/textinput"; // [NEW] Strategy Pattern (Input v1)
 import conceptHandler from "./handlers/concept/index";
 import togetherSelfHandler from "./handlers/together+self/index"; // [NEW]
@@ -18,6 +19,7 @@ import { loadManifest } from "./manifest"; // [NEW]
 const ENGINE_BY_TYPEKEY = {
   [togetherSelect.typeKey]: togetherSelect,
   [questionMathinput.typeKey]: questionMathinput,
+  [questionImage.typeKey]: questionImage,
   [questionTextinput.typeKey]: questionTextinput,
   [conceptHandler.typeKey]: conceptHandler,
   [togetherSelfHandler.typeKey]: togetherSelfHandler, // [NEW]
