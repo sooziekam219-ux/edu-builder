@@ -149,25 +149,6 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
                         maskWrap.style.position = "relative"; // 라벨 absolute 기준
 
                         maskWrap.innerHTML = `
-      ${(showLabel && labelText) ? `
-          <span
-          class="blank-label"
-          style="
-              position:absolute;
-              top:-18px;
-              left:50%;
-              transform:translateX(-50%);
-              font-size:14px;
-              font-weight:700;
-              background:#111827;
-              color:#fff;
-              padding:2px 8px;
-              border-radius:999px;
-              line-height:1;
-              white-space:nowrap;
-          "
-          >${labelText}</span>
-      ` : ""}
 
       <button type="button" class="btn-mask h90" style="margin-left:2px; margin-right:2px; width: ${estimatedWidth}px">
           딱지를 누르면 딱지가 벗겨집니다.

@@ -151,6 +151,7 @@ JSON을 생성하기 전, 텍스트를 읽지 말고 이미지의 전체적인 '
 2. **[스풀 아이콘]**: 우측 상단에 '스스로 풀기' 타이틀 아이콘이 존재하는가?
 3. **[레이아웃]**: 박스가 좌우 2단(2-Column)으로 나뉘어 있는가, 아니면 화면 전체를 쓰는 1단(Single-Column) 박스인가?
 4. **[삽화 및 구조]**: '함께 풀기' 템플릿 외부의 일반 '문제' 영역에 (1), (2) 같은 **소문항이 없으면서**, 우측이나 하단에 문제 풀이에 필수적인 **시각 자료(도형, 그래프, 실생활 사진 등)**가 포함되어 있는가? (단, 단순 장식용 캐릭터 일러스트는 시각 자료로 치지 않는다.)
+
 ### STEP 2: 절대 유형 결정 규칙 (Strict Decision Table)
 STEP 1의 결과에 따라 한 치의 예외도 없이 아래 규칙에 따라 'typeKey'를 결정하라. 텍스트가 아무리 길어도 이 규칙이 우선한다.
 
@@ -165,8 +166,6 @@ STEP 1의 결과에 따라 한 치의 예외도 없이 아래 규칙에 따라 '
 - **[Case C] 위 두 아이콘이 없고, "문제 1", "문제 2" 등으로 시작함**
   -> **분류:** \`question.mathinput\` (일반 문제)
   -> **특징:** 특정 박스 템플릿 없이 일반적인 발문과 수식이 나열됨.
-- **텍스트가 많더라도 '풀이 과정'의 논리를 가지고 있다면 together.self 유형**
-**중요: 텍스트 양에 상관없이 본문의 '맥락'이 과정형이면 반드시 'lines' 구조를 사용하세요.**
 
 ### STEP 3: 스스로 풀기 정답 추론 특수 규칙 (Crucial for together.self)
 '스스로 풀기'의 빈칸(밑줄) 정답을 추출할 때는 절대 임의로 계산 방식을 생략하거나 건너뛰지 마라. 반드시 짝꿍인 '함께 풀기'의 풀이 과정을 1:1 템플릿으로 사용하여 아래의 논리적 흐름(Chain of Thought)을 따라라:
@@ -174,68 +173,80 @@ STEP 1의 결과에 따라 한 치의 예외도 없이 아래 규칙에 따라 '
 2. **숫자 치환 (Substitution):** '스스로 풀기'에 주어진 문제의 숫자와 조건을 '함께 풀기'와 완전히 동일한 위치에 대입하라. 
 3. **중간 과정 도출 (Step-by-Step):** 최종 정답만 구하지 말고, '함께 풀기'의 구조상 중간에 위치한 빈칸(밑줄 등)에 들어가야 할 정확한 식이나 계산값(예: 약분 전의 분수형태, 근호 안의 식 등)을 도출하여 정답으로 설정하라.
 
-**공통 규칙:**
+**공통 규칙 (매우 중요):**
+- **정답 및 해설 직접 계산:** 예시 텍스트를 그대로 복사하지 마십시오. 당신은 수학 교사입니다. 이미지의 문제를 **직접 풀이하여 정확한 수학적 정답**을 구하고, 그에 맞는 **구체적인 해설**을 작성하여 JSON 필드에 채워 넣어야 합니다.
 - 모든 수식은 반드시 '\\\\( ... \\\\)' 형태로 감싸세요. (백슬래시 2개)
-- 'mainQuestion'과 'guideText'를 이미지 맥락에 맞게 생성하세요.
 - 유형 안에 삽화나 도형이 있다면 'figure_bounds'([ymin, xmin, ymax, xmax])를 0~1000 좌표계로 추출하세요. 없으면 [0,0,0,0].
+- 이미지에 포함된 "답:", "정답:", "풀이:", "해설:"로 시작하는 텍스트는 교사용 정보이므로 **절대 'body'나 'content'에 포함하지 마라.**
+- 만약 문제 바로 아래에 정답이 적혀 있다면, 해당 정답은 'answers' 배열에만 넣고 'body'에서는 삭제하라.
 
-**유형별 데이터 구조:**
+**유형별 데이터 구조 및 분할 규칙:**
 
-1. **together 계열 (together.self, together.select)**:
-- **[절대 규칙: 병합 생성]** 하나의 '함께 풀기'에 있는 내용은 텍스트가 아무리 길고 수식이 많더라도 **절대 여러 개의 JSON 객체(section/activity)로 쪼개지 마라.** 단 1개의 객체 안에서 모두 처리해야 한다.
-   - 풀이 과정이 길다면 객체를 나누는 것이 아니라, 내부의 'lines' 배열에 항목을 계속 추가하는 방식으로 해결하라. 
-   - 'lines' 배열을 사용하세요.
-   - 각 line은 'label'과 'parts' 배열을 가집니다.
-   - 'parts'의 각 항목은 { 'type': 'text', 'content': '...' } 또는 { 'type': 'blank', 'options': [...], 'correctIndex': n, 'explanation': '...' } 입니다.
-   - **중요(together.select 전용):** 'blank'의 'options' 배열에는 반드시 **3개의 선택지**를 포함하세요.
-     - Option 0(정답): 실제 수치/텍스트.
-     - Option 1, 2(오답): 학생들이 가장 많이 하는 실수(부호 오류, 연산 순서 오류, 단위 누락 등)를 반영하여 **현실적이고 매력적인 오답**을 생성하세요.
+1. **[단독형 (together.select)]**: 
+   - 1개의 객체 안에서 모두 처리하라.
+   - **중요:** 'blank' 파트의 'options' 배열에는 반드시 **[ "실제 계산된 정답", "오답1", "오답2" ]** 처럼 3개의 요소가 있어야 한다. (객관식 선택형이므로)
 
-2. **question.mathinput**:
+2. **[복합형 (together.self) - 절대 분할 규칙]**: 
+   - '함께 풀기'와 '스스로 풀기'는 **반드시 서로 다른 2개의 독립적인 객체(section)**로 분할하여 배열에 담아라. 절대 1개의 객체로 합치지 마라!
+   - **중요:** 'blank' 파트의 'options' 배열에는 오답이 필요 없다! 반드시 **[ "실제 계산된 정답" ]** 1개의 요소만 배열에 담아라. (단순 확인 및 주관식 입력이므로)
+
+3. **question.mathinput**:
    - 'subQuestions' 배열을 사용하세요.
-   - 각 항목은 { 'label': '...', 'passage': '...', 'answer': '...', 'explanation': '...' } 형태입니다.
-
-
-// (상단 내용 유지 ...)
+   - 각 항목은 { 'label': '...', 'passage': '...', 'answer': '<실제 계산된 정답>', 'explanation': '<구체적인 풀이 과정>' } 형태입니다.
 
 **최종 JSON 응답은 마크다운 코드 블록 없이 순수 JSON만 반환하세요.**
 
-### [매우 중요: 다중 영역 분할 및 JSON 구조]
-한 이미지(페이지) 안에 '함께 풀기' 템플릿 영역과 하단의 일반 '문제' 영역이 함께 존재할 경우, 절대 전체를 하나의 객체로 뭉뚱그리지 마십시오.
-반드시 각각 독립된 객체로 분할하여 sections 배열 안에 순서대로 담아 반환해야 합니다.
+### [매우 중요: 다중 영역 분할 및 JSON 구조 예시]
+한 이미지 안에 '함께 풀기(복합)', '스스로 풀기(복합)', '문제'가 같이 있다면 반드시 아래처럼 **3개의 독립된 객체**로 나누어 응답해야 합니다. (options 배열의 차이에 주목하라)
 
-**JSON 구조 예시 (한 페이지에 함풀+스풀과 일반 문제가 같이 있는 경우):**
+### [매우 중요: 섹션 분할 및 기존 JSON 출력 포맷]
+'함께 풀기'와 '스스로 풀기', 그리고 하단의 '문제'는 **반드시 서로 다른 독립된 객체**로 분할하여 \`sections\` 배열에 담아라.
+출력 포맷은 반드시 아래의 기존 \`content: { title, instruction, body }\` 구조를 엄격하게 지켜야 한다.
+
+**JSON 구조 예시:**
 {
   "sections": [
     {
       "type": "함께 풀기 + 스스로 풀기",
       "typeKey": "together.self",
-      "mainQuestion": "이차방정식을 푸시오.",
-      "guideText": "▷ 빈칸에 들어갈 값을 입력해 보세요.",
+      "subtype": "복합형",
+      "content": {
+        "title": "함께 풀기 1",
+        "instruction": "이차방정식을 푸시오.",
+        "body": "좌변을 인수분해 하면 \\\\( (x-3)(2x-1)=0 \\\\)\\n\\\\( x-3=0 \\\\) 또는 \\\\( 2x-1=0 \\\\)\\n따라서 \\\\( x=3 \\\\) 또는 \\\\( x= \\\\) □"
+      },
+      "answers": ["\\\\frac{1}{2}"],
+      "explanation": [""],
       "figure_bounds": [0,0,0,0],
-      "figure_alt": "",
-      "lines": [
-        {
-          "label": "",
-          "parts": [
-            { "type": "text", "content": "x=" },
-            { "type": "blank", "options": ["3", "1", "-3"], "correctIndex": 1 }
-          ]
-        }
-      ],
-      "answers": ["3"]
+      "figure_alt": ""
+    },
+    {
+      "type": "스스로 풀기",
+      "typeKey": "together.self",
+      "subtype": "복합형",
+      "content": {
+        "title": "스스로 풀기",
+        "instruction": "이차방정식을 푸시오.",
+        "body": "좌변을 인수분해 하면 □\\n□ 또는 □\\n따라서 □ 또는 □"
+      },
+      "answers": ["\\\\( (x-2)(3x+2)=0 \\\\)", "\\\\( x-2=0 \\\\)", "\\\\( 3x+2=0 \\\\)", "2", "-\\\\frac{2}{3}"],
+      "explanation": [""],
+      "figure_bounds": [0,0,0,0],
+      "figure_alt": ""
     },
     {
       "type": "문제",
       "typeKey": "question.mathinput",
-      "mainQuestion": "다음 이차방정식을 푸시오.",
-      "guideText": "▷ 빈칸에 들어갈 값을 입력해 보세요.",
+      "subtype": "일반형",
+      "content": {
+        "title": "문제 5",
+        "instruction": "다음 이차방정식을 푸시오.",
+        "body": "(1) \\\\( x^2+4x-12=0 \\\\) □\\n(2) \\\\( 6x^2-13x-5=0 \\\\) □"
+      },
+      "answers": ["-6, 2", "-\\\\frac{1}{3}, \\\\frac{5}{2}"],
+      "explanation": ["(1) 인수분해하여 풉니다.", "(2) 인수분해하여 풉니다."],
       "figure_bounds": [0,0,0,0],
-      "figure_alt": "",
-      "subQuestions": [
-        { "label": "(1)", "passage": "\\\\( x^2-3x+1=0 \\\\)", "answer": "정답", "explanation": "" },
-        { "label": "(2)", "passage": "\\\\( x^2+2x-5=0 \\\\)", "answer": "정답", "explanation": "" }
-      ]
+      "figure_alt": ""
     }
   ]
 }
@@ -879,8 +890,8 @@ const App = () => {
 
         const sanitizedText = sanitizeLaTeX(text);
 
-        // 스스로 풀기 여부 확인
-        const isSelfStudy = typeKey === TYPE_KEYS.TOGETHER_SELF && (pageTitle?.includes('스스로') || false);
+        // 스스로 풀기 여부 확인 (함께 풀기가 포함되어 있으면 함께 풀기 섹션으로 간주)
+        const isSelfStudy = typeKey === TYPE_KEYS.TOGETHER_SELF && (pageTitle?.includes('스스로') && !pageTitle?.includes('함께'));
         const isTogether = typeKey === TYPE_KEYS.TOGETHER_SELECT || (typeKey === TYPE_KEYS.TOGETHER_SELF && !isSelfStudy);
 
         // [MODIFIED] 수식 블록 내부에 □ 또는 _ 가 있는 경우 안전하게 분리
@@ -913,11 +924,6 @@ const App = () => {
                                     : 'w-10 h-10 bg-[#00bcf1] border-[#00bcf1]'
                                 }`}
                         >
-                            {isTogether && (
-                                <span className="absolute -top-2.5 -left-2.5 w-6 h-6 bg-slate-900 text-white rounded-full flex items-center justify-center text-[10px] font-black border-2 border-white shadow-sm z-10">
-                                    {currentBlankIdx}
-                                </span>
-                            )}
 
                             {isSelfStudy && <img src="https://i.imgur.com/5LhWfL3.png" className="w-5 h-5 object-contain opacity-50" />}
 
@@ -962,7 +968,8 @@ const App = () => {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        contents: [{ parts: [{ text: KIM_HWA_KYUNG_PROMPT }, { inlineData: { mimeType: "image/png", data: base64 } }] }],
+                        contents: [{ parts: [{ text: "이미지를 분석하여 JSON 구조로 추출해줘." }, { inlineData: { mimeType: "image/png", data: base64 } }] }],
+                        systemInstruction: { parts: [{ text: UNIVERSAL_BUILDER_PROMPT }] }, // 우리가 열심히 깎은 프롬프트를 드디어 적용!
                         generationConfig: { responseMimeType: "application/json" }
                     })
                 });
@@ -1023,64 +1030,70 @@ const App = () => {
                 }
 
                 const pageSections = deepRestore(extractedSections);
-                const hasTogether = pageSections.some(s => (s.content.title || "").includes("함께"));
-                const hasSelf = pageSections.some(s => (s.content.title || "").includes("스스로"));
+                // [FIX] content 객체가 없는 새로운 JSON 구조에도 에러가 나지 않도록 옵셔널 체이닝(?.) 및 다중 조건 적용
+                const hasTogether = pageSections.some(s => {
+                    const t = s.content?.title || s.mainQuestion || s.title || "";
+                    return t.includes("함께");
+                });
+                const hasSelf = pageSections.some(s => {
+                    const t = s.content?.title || s.mainQuestion || s.title || "";
+                    return t.includes("스스로");
+                });
                 const isTogetherSelfSet = hasTogether && hasSelf;
 
                 let lastTogetherType = ""; // [추가] 이전 섹션의 together 유형 추적
 
                 pageSections.forEach((sec, sIdx) => {
-                    const title = sec.content.title || "";
+                    const contentObj = sec.content || {};
+                    const title = contentObj.title || sec.mainQuestion || sec.title || "";
                     const secTitle = title.toLowerCase();
-                    const isThisSecSelf = secTitle.includes('스스로');
+                    const isThisSecSelf = secTitle.includes('스스로') && !secTitle.includes('함께'); // [FIX] "함께 + 스스로" 간섭 방지
                     const isThisSecTogether = secTitle.includes('함께');
 
-                    // [수정] 분류 상속 로직: 제목이 없거나 숫자로 시작하거나 '계속'이 포함된 경우 이전 together 유형 상속
                     const isContinuation = !title || /^\d/.test(title) || title.includes("계속");
 
-                    let detectedTypeKey = "";
-                    let type = "";
+                    let detectedTypeKey = sec.typeKey || "";
+                    let type = sec.type || "";
 
-                    if (isTogetherSelfSet && (isThisSecTogether || isThisSecSelf)) {
-                        detectedTypeKey = TYPE_KEYS.TOGETHER_SELF;
-                        type = isThisSecSelf ? '스스로 풀기' : '함께 풀기 + 스스로 풀기';
-                    } else if (isThisSecTogether) {
-                        detectedTypeKey = TYPE_KEYS.TOGETHER_SELECT;
-                        type = '함께 풀기';
-                    } else if (isThisSecSelf) {
-                        detectedTypeKey = TYPE_KEYS.TOGETHER_SELF;
-                        type = '스스로 풀기';
-                    } else if (isContinuation && lastTogetherType) {
-                        detectedTypeKey = lastTogetherType;
-                        type = lastTogetherType === TYPE_KEYS.TOGETHER_SELECT ? '함께 풀기' : '함께 풀기 + 스스로 풀기';
-                    } else {
-                        detectedTypeKey = TYPE_KEYS.QUESTION_MATHINPUT;
-                        type = '문제';
+                    if (!detectedTypeKey) {
+                        if (isTogetherSelfSet && (isThisSecTogether || isThisSecSelf)) {
+                            detectedTypeKey = TYPE_KEYS.TOGETHER_SELF;
+                            type = isThisSecSelf ? '스스로 풀기' : '함께 풀기 + 스스로 풀기';
+                        } else if (isThisSecTogether) {
+                            detectedTypeKey = TYPE_KEYS.TOGETHER_SELECT;
+                            type = '함께 풀기';
+                        } else if (isThisSecSelf) {
+                            detectedTypeKey = TYPE_KEYS.TOGETHER_SELF;
+                            type = '스스로 풀기';
+                        } else if (isContinuation && lastTogetherType) {
+                            detectedTypeKey = lastTogetherType;
+                            type = lastTogetherType === TYPE_KEYS.TOGETHER_SELECT ? '함께 풀기' : '함께 풀기 + 스스로 풀기';
+                        } else {
+                            detectedTypeKey = TYPE_KEYS.QUESTION_MATHINPUT;
+                            type = '문제';
+                        }
                     }
 
-                    // 다음 섹션을 위해 현재 together 유형 저장
                     if (detectedTypeKey.startsWith("together")) {
                         lastTogetherType = detectedTypeKey;
                     } else {
                         lastTogetherType = "";
                     }
 
-                    let body = (sec.content.body || "").replace(/(답|정답|풀이|해설)\s*[:\.]\s*.*(\n|$)/g, "").trim();
+                    let body = (contentObj.body || "").replace(/(답|정답|풀이|해설)\s*[:\.]\s*.*(\n|$)/g, "").trim();
                     let finalAnswers = [...(sec.answers || [])];
 
-                    // 함께 풀기 유형에서 수식 중간에 라벨을 입히기 위한 필수 로직
-                    if (detectedTypeKey === TYPE_KEYS.TOGETHER_SELF && !body.includes('□') && !body.includes('_')) {
+                    if (detectedTypeKey === TYPE_KEYS.TOGETHER_SELF && !body.includes('□') && !body.includes('_') && body.length > 0) {
                         const extracted = [];
-                        // 수식 블록 내의 = 뒤 내용을 찾아서 □로 바꾸고 extracted에 저장
                         body = body.replace(/=\s*([^=\n]+?)(?=\s*\\\)|\s*\n|\s*=|$)/g, (match, p1) => {
                             extracted.push(p1.trim());
-                            return '=\\) □ \\('; // 수식을 닫고 □ 넣고 다시 열기
+                            return '=\\) □ \\(';
                         });
-                        body = body.replace(/\\\( *\\\)/g, ''); // 빈 수식 블록 정리
+                        body = body.replace(/\\\( *\\\)/g, '');
                         if (extracted.length > 0) finalAnswers = extracted;
                     }
                     body = body.trim() || "";
-                    // --- 그룹화 로직 (pendingPassage 적용 및 에러 수정) ---
+
                     const bodyLines = body.split('\n').filter(l => l.trim());
                     const updatedSubQs = [];
                     let currentSq = null;
@@ -1088,6 +1101,7 @@ const App = () => {
                     let pendingPassage = "";
 
                     const isTogetherType = detectedTypeKey.includes('SELF') || detectedTypeKey === TYPE_KEYS.TOGETHER_SELECT;
+
                     bodyLines.forEach((line, i) => {
                         const trimmedLine = line.trim();
                         if (!trimmedLine) return;
@@ -1103,7 +1117,6 @@ const App = () => {
                             const chunk = blankCount > 0 ? finalAnswers.slice(answerPointer, answerPointer + blankCount) : [];
                             if (blankCount > 0) answerPointer += blankCount;
 
-                            // 번호 앞에 쌓인 지문이 있다면 합쳐줌
                             const finalPassage = pendingPassage ? `${pendingPassage}\n${rawText}` : rawText;
                             pendingPassage = "";
 
@@ -1112,7 +1125,6 @@ const App = () => {
                                 label: labelMatch[0].trim(),
                                 passage: finalPassage,
                                 answer: chunk.length > 1 ? chunk : (chunk[0] || ""),
-                                // Together 유형일 때만 라벨 기능을 기본적으로 활성화
                                 labelEnabled: isTogetherType,
                                 explanation: ""
                             };
@@ -1127,13 +1139,10 @@ const App = () => {
                                 answerPointer += extraBlank;
                             }
                         } else {
-                            // 번호가 아직 안 나왔으므로 임시 보관 (여기에 rawText가 아닌 trimmedLine 사용)
                             pendingPassage = pendingPassage ? `${pendingPassage}\n${trimmedLine}` : trimmedLine;
                         }
                     });
 
-
-                    // 만약 루프가 끝났는데 pendingPassage에만 데이터가 있고 문항이 하나도 안 만들어졌을 때 처리
                     if (updatedSubQs.length === 0 && pendingPassage) {
                         updatedSubQs.push({
                             id: Date.now(),
@@ -1145,90 +1154,63 @@ const App = () => {
                     }
 
                     // --- [4] Builder 라벨 인식을 위한 lines 생성 로직 ---
-                    let lines = null;
-                    if (isTogetherType) {
-                        // AI가 응답한 lines에서 blank 파트만 추출하여 options 정보를 확보함
-                        const aiBlanks = [];
-                        if (Array.isArray(sec.lines)) {
-                            sec.lines.forEach(l => {
-                                (l.parts || []).forEach(p => {
-                                    if (p.type === 'blank' && Array.isArray(p.options)) aiBlanks.push(p);
-                                });
-                            });
-                        }
+                    const sourceSubQs = updatedSubQs.length > 0 ? updatedSubQs : (sec.subQuestions || []);
+                    let finalLines = (sec.lines && sec.lines.length > 0) ? sec.lines : null;
 
-                        let blankSerialIdx = 0;
-                        lines = updatedSubQs.map((sq, sqIdx) => {
+                    if (!finalLines && isTogetherType && sourceSubQs.length > 0) {
+                        finalLines = sourceSubQs.map((sq, sqIdx) => {
                             const parts = [];
-
-                            // [수정] 수식 밸런싱: 수식(\(...\)) 내부에 빈칸이 있으면 안전하게 분할
-                            let balancedPassage = splitMathSafely(sq.passage || "");
-                            // 빈 수식(\( \)) 정리
-                            balancedPassage = balancedPassage.replace(/\\\( *\\\)/g, "");
-
+                            let balancedPassage = splitMathSafely(sq.passage || sq.text || "").replace(/\\\( *\\\)/g, "");
                             const textParts = balancedPassage.split(/□|_/);
                             const sqAnswers = Array.isArray(sq.answer) ? sq.answer : (sq.answer ? [sq.answer] : []);
 
                             textParts.forEach((tp, i) => {
                                 if (tp) parts.push({ type: 'text', content: tp.trim() });
                                 if (i < textParts.length - 1) {
-                                    // 1) AI가 생성한 options가 있다면 (3개 이상) 가져옴
+                                    const ans = String(sqAnswers[i] || "정답");
+                                    const numMatch = ans.match(/^-?\d*\.?\d+$/);
                                     let finalOptions = ["", "", ""];
-                                    const aiSource = aiBlanks[blankSerialIdx];
-
-                                    if (aiSource && aiSource.options?.length >= 3) {
-                                        finalOptions = aiSource.options.slice(0, 3);
+                                    if (numMatch) {
+                                        const n = parseFloat(ans);
+                                        finalOptions = [ans, String(n - 1), String(n + 1)];
                                     } else {
-                                        // 2) 없으면 정답 + 휴리스틱 오답 생성
-                                        const ans = String(sqAnswers[i] || "정답");
-                                        const numMatch = ans.match(/^-?\d*\.?\d+$/); // 숫자 여부 확인
-
-                                        if (numMatch) {
-                                            const n = parseFloat(ans);
-                                            // 헷갈릴만한 숫자 오답: n+1, n-1 혹은 자릿수 변경 등
-                                            const w1 = n > 5 ? String(n - 1) : String(n + 2);
-                                            const w2 = n > 10 ? String(n - 10) : String(n + 10);
-                                            finalOptions = [ans, w1, w2];
-                                        } else {
-                                            finalOptions = [ans, "오답1", "오답2"];
-                                        }
+                                        finalOptions = [ans, "오답1", "오답2"];
                                     }
 
                                     parts.push({
                                         type: 'blank',
                                         options: finalOptions,
                                         correctIndex: 1,
-                                        labelEnabled: false, // [FIX] Hide in ZIP engine
+                                        labelEnabled: false,
                                         isLabelTarget: true,
                                         label: "",
-                                        explanation: aiSource?.explanation || ""
+                                        explanation: sq.explanation || ""
                                     });
-                                    blankSerialIdx++;
                                 }
                             });
                             return { label: sq.label || `(${sqIdx + 1})`, parts: parts, labelEnabled: false, isSelfLine: isThisSecSelf };
                         });
                     }
 
-                    let instructionRaw = sec.content.instruction || "";
+                    // 🚨 여기가 이전 턴에서 날아갔던 변수들입니다! 🚨
+                    let instructionRaw = contentObj.instruction || sec.mainQuestion || "";
                     let finalInstruction = instructionRaw.replace(/\\\\/g, "\\");
-
                     if (!finalInstruction) {
                         finalInstruction = (detectedTypeKey === TYPE_KEYS.QUESTION_MATHINPUT) ? "다음을 계산하세요." : "문제를 해결해 보세요.";
                     }
 
-                    let guideRaw = "";
+                    let guideRaw = sec.guideText || "";
                     let guide = (guideRaw.replace(/\\\\/g, "\\")) || "";
-
                     if (!guide) {
                         guide = (detectedTypeKey === TYPE_KEYS.QUESTION_MATHINPUT) ? "▷ 빈칸에 들어갈 값을 입력해 보세요." : "▷ 빈칸을 클릭하여 문제를 해결해 보세요.";
                     }
 
-                    // [수정] 분할 조건: 문제 유형 또는 together.select 유형이면서 문항이 3개 이상일 때
-                    if ((type === '문제' || detectedTypeKey === TYPE_KEYS.TOGETHER_SELECT) && updatedSubQs.length >= 3) {
-                        for (let i = 0; i < updatedSubQs.length; i += 2) {
-                            const chunk = updatedSubQs.slice(i, i + 2);
-                            const chunkLines = lines ? lines.slice(i, i + 2) : null;
+                    const finalSubQs = sourceSubQs;
+
+                    if ((type === '문제' || detectedTypeKey === TYPE_KEYS.TOGETHER_SELECT) && finalSubQs.length >= 3) {
+                        for (let i = 0; i < finalSubQs.length; i += 2) {
+                            const chunk = finalSubQs.slice(i, i + 2);
+                            const chunkLines = finalLines ? finalLines.slice(i, i + 2) : null;
                             const isFirst = i === 0;
 
                             newPages.push({
@@ -1241,9 +1223,10 @@ const App = () => {
                                 answers: chunk.flatMap(q => Array.isArray(q.answer) ? q.answer : [q.answer]),
                                 description: [{ text: generateLogicText(type, sec.subtype, chunk.flatMap(q => Array.isArray(q.answer) ? q.answer : [q.answer])) }],
                                 subQuestions: chunk, lines: chunkLines,
+                                isSelfStudy: isThisSecSelf, // [NEW]
                                 figure_bounds: sec.figure_bounds || [0, 0, 0, 0],
                                 figure_alt: sec.figure_alt || "",
-                                contentImageUrl: contentImageUrl // [FIX] Added for zipProcessor
+                                contentImageUrl: contentImageUrl
                             });
                         }
                     } else {
@@ -1254,10 +1237,11 @@ const App = () => {
                             content: finalInstruction, guide: guide,
                             body: body, answers: finalAnswers,
                             description: [{ text: generateLogicText(type, sec.subtype, finalAnswers) }],
-                            subQuestions: updatedSubQs, lines: lines,
+                            subQuestions: finalSubQs, lines: finalLines,
+                            isSelfStudy: isThisSecSelf, // [NEW]
                             figure_bounds: sec.figure_bounds || [0, 0, 0, 0],
                             figure_alt: sec.figure_alt || "",
-                            contentImageUrl: contentImageUrl // [FIX] Added for zipProcessor
+                            contentImageUrl: contentImageUrl
                         });
                     }
                 });
@@ -1522,7 +1506,7 @@ const App = () => {
                         { id: 'analysis', icon: BookOpen, label: '교과서 분석' },
                         { id: 'storyboard', icon: Layers, label: '스토리보드' },
                         { id: 'builder', icon: Calculator, label: '콘텐츠 생성' },
-                        { id: 'library', icon: HardDrive, label: '라이브러리' }
+                        // { id: 'library', icon: HardDrive, label: '라이브러리' }
                     ].map(item => (
                         <button
                             key={item.id}
@@ -1754,12 +1738,17 @@ const App = () => {
                                             <label className="text-[10px] font-black uppercase text-indigo-300 tracking-widest block mb-6">Visual Preview</label>
                                             <div className="bg-white p-12 rounded-[2.5rem] border border-slate-200 shadow-sm relative min-h-[500px]">
                                                 {(() => {
-                                                    let titleImg = ASSETS.TITLES[page.type] || ASSETS.TITLES['문제'];
-                                                    if (page.type === '함께 풀기 + 스스로 풀기') {
-                                                        if (page.title.includes('함께')) titleImg = ASSETS.TITLES['함께 풀기'];
-                                                        else if (page.title.includes('스스로')) titleImg = ASSETS.TITLES['스스로 풀기'];
+                                                    let titleImg = ASSETS.TITLES['문제'];
+                                                    // 타이틀 텍스트가 제멋대로여도 typeKey(유형)를 최우선으로 아이콘 매핑
+                                                    if (page.typeKey === 'together.self' || page.type === '함께 풀기 + 스스로 풀기') {
+                                                        if ((page.title || "").includes('스스로')) titleImg = ASSETS.TITLES['스스로 풀기'];
+                                                        else titleImg = ASSETS.TITLES['함께 풀기']; // 기본값은 함께 풀기
+                                                    } else if (page.typeKey === 'together.select' || page.type === '함께 풀기') {
+                                                        titleImg = ASSETS.TITLES['함께 풀기'];
+                                                    } else if (page.typeKey === 'question.mathinput' || page.type === '문제') {
+                                                        titleImg = ASSETS.TITLES['문제'];
                                                     }
-                                                    return <img src={titleImg} className="h-10 mb-4 object-contain brightness-95" />;
+                                                    return <img src={titleImg} className="h-10 mb-4 object-contain brightness-95" alt="title" />;
                                                 })()}
 
                                                 <div className="space-y-2">
@@ -1771,8 +1760,49 @@ const App = () => {
                                                     </h5>
 
                                                     <div className="space-y-6 mt-8 pl-2 border-l-2 border-slate-100">
-                                                        {/* 1. 질문 리스트 렌더링 */}
-                                                        {page.subQuestions.length > 0 ? page.subQuestions.map((sq, i) => (
+                                                        {/* 1. 질문 리스트 및 Lines 렌더링 */}
+                                                        {(page.typeKey?.startsWith('together') || page.type?.includes('함께')) && page.lines && page.lines.length > 0 ? (
+                                                            <div className="space-y-4 pt-4">
+                                                                {(() => {
+                                                                    let globalBlankIdx = 0;
+                                                                    return page.lines.map((line, li) => (
+                                                                        <div key={li} className="flex gap-4 items-start p-6 bg-slate-50 rounded-[2rem] hover:bg-indigo-50/30 transition-colors">
+                                                                            {line.label && <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-black text-slate-500 shrink-0">{line.label}</div>}
+                                                                            <div className="flex-1 text-lg font-medium leading-relaxed text-slate-700">
+                                                                                {(line.parts || []).map((part, pi) => {
+                                                                                    if (part.type === 'text') return renderMathToHTML(part.content, page.typeKey || page.type, page.title);
+                                                                                    if (part.type === 'blank') {
+                                                                                        globalBlankIdx++;
+                                                                                        const currentIdx = globalBlankIdx;
+                                                                                        // [FIX] Strict Self-study detection
+                                                                                        const isSelf = page.isSelfStudy || ((page.title || "").includes("스스로") && !(page.title || "").includes("함께"));
+                                                                                        const ans = (part.options && part.options[0]) || "";
+                                                                                        return (
+                                                                                            <span key={pi} className="inline-flex items-center align-middle mx-1 relative">
+                                                                                                <span className={`inline-flex items-center justify-center rounded-md border-2 transition-all relative ${isSelf
+                                                                                                    ? 'w-16 h-10 bg-white border-slate-300 shadow-sm'
+                                                                                                    : 'w-10 h-10 bg-[#00bcf1] border-[#00bcf1] shadow-[0_4px_0_0_#0097c3]'}`}>
+
+
+                                                                                                    {isSelf && <img src="https://i.imgur.com/5LhWfL3.png" className="w-5 h-5 object-contain opacity-50" />}
+
+                                                                                                    {ans && (
+                                                                                                        <span className={`absolute inset-0 flex items-center justify-center font-bold text-[11px] pointer-events-none ${isSelf ? 'text-blue-600' : 'text-white'}`}>
+                                                                                                            {ans.length > 5 ? ans.substring(0, 4) + '..' : ans}
+                                                                                                        </span>
+                                                                                                    )}
+                                                                                                </span>
+                                                                                            </span>
+                                                                                        );
+                                                                                    }
+                                                                                    return null;
+                                                                                })}
+                                                                            </div>
+                                                                        </div>
+                                                                    ));
+                                                                })()}
+                                                            </div>
+                                                        ) : page.subQuestions.length > 0 ? page.subQuestions.map((sq, i) => (
                                                             <div key={i} className="flex items-start gap-6 p-6 bg-slate-50 rounded-[2rem] hover:bg-indigo-50/30 transition-colors">
                                                                 {sq.label && (
                                                                     <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-black text-slate-500 mt-1">
@@ -1791,7 +1821,6 @@ const App = () => {
                                                                         )}
                                                                     </div>
 
-                                                                    {/* [수정] 일반 문제(mathinput) 유형일 때만 각 문항 옆에 확인 버튼 배치 */}
                                                                     {(page.typeKey === 'question.mathinput' || page.type === '문제') && (
                                                                         <div className="mt-4 flex justify-end">
                                                                             <button className="bg-red-500 text-white px-6 py-2 rounded-3xl font-bold shadow-md">확인</button>
@@ -2485,9 +2514,9 @@ function ensureTogetherSelf(data) {
 
 function TogetherSelfEditor({ currentData, onChange, onClickLabelZip }) {
     const lines = Array.isArray(currentData?.lines) ? currentData.lines : [];
-    // [FIX] strategy 옵션에 의존하지 않고 로컬 스테이트로 탭 관리
-    const isThisPageSelf = currentData?.type === "스스로 풀기" || (currentData?.title || "").includes("스스로");
-    const [activeTab, setActiveTab] = React.useState(isThisPageSelf ? "self" : "together"); // [FIX] 초기 탭 설정 보강
+    // [FIX] more strict self-study detection logic
+    const isThisPageSelf = currentData?.isSelfStudy || (currentData?.type === "스스로 풀기" || ((currentData?.title || "").includes("스스로") && !(currentData?.title || "").includes("함께")));
+    const [activeTab, setActiveTab] = React.useState(isThisPageSelf ? "self" : "together");
 
     // blank 파트만 한 번에 모으기(순서 유지)
     const getBlanks = (targetLines) => {
