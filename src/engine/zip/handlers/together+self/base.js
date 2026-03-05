@@ -1,15 +1,23 @@
 
 import { sanitizeLaTeX } from "../../../utils/sanitize";
-
 export const injectTogetherSelfBase = ({ doc, data }) => {
     // 1. Detect View Type (Together vs Self)
     const $headerTitle = doc.querySelector('header img');
     const altText = $headerTitle?.getAttribute('alt') || "";
-    const isSelfStudy = altText.includes("스스로 풀기");
-    $headerTitle.src = isSelfStudy ? "images/tit-self.png" : "images/tit-together1.png";
+    const dType = data.type || "";
+    const dTitle = data.title || "";
+
+    // [FIX] '함께 풀기 + 스스로 풀기' 문자열 간섭 방지
+    const isSelfStudy =
+        altText === "스스로 풀기" ||
+        dType === "스스로 풀기" ||
+        (dTitle.includes("스스로") && !dTitle.includes("함께"));
+
     if ($headerTitle) {
         $headerTitle.src = isSelfStudy ? "images/tit-self.png" : "images/tit-together1.png";
+        $headerTitle.setAttribute('alt', isSelfStudy ? "스스로 풀기" : "함께 풀기");
     }
+
 
     const $main = doc.querySelector('main');
     if (!$main) return;

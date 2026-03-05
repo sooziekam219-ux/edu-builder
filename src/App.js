@@ -98,7 +98,7 @@ const KIM_HWA_KYUNG_PROMPT = `
   Analyze input textbook image(s) and split content into logical sections for a Storyboard.
   
   **Splitting Rules:**
-  - Detect visual separators like "문제 1", "함께 풀기", "함께 풀기 + 스스로 풀기".
+  - Detect visual separators like "문제 1", "함께 풀기", "스스로 풀기".
   - **Type:** '문제', '함께 풀기', '함께 풀기 + 스스로 풀기'
   - **Body Text:** Use LaTeX \\( ... \\). Use \\n to separate distinct questions or sentences.
   - **답이 스토리보드에 포함되지 않도록 주의** 
@@ -121,11 +121,6 @@ const KIM_HWA_KYUNG_PROMPT = `
   4. **Answer Extraction:** Place the actual text that was on the underline into the "answers" array in the correct sequence.
   5. **LaTeX:** Ensure all mathematical expressions within or around the underline are wrapped in \( ... \).
 
-  **Illustration Detection (NEW):**
-  - **Only for '문제' (question.mathinput) type:** If a section contains an illustration, diagram, or specific figure (like a photo card or geometry figure), extract its coordinates.
-  - Illustrations are NOT expected in '함께 풀기' or '스스로 풀기' sections.
-  - **figure_bounds:** [ymin, xmin, ymax, xmax] (0-1000 scale). If none, [0,0,0,0].
-  - **figure_alt:** Brief description of the figure.
 
   Output JSON format:
   {
@@ -167,11 +162,7 @@ STEP 1의 결과에 따라 한 치의 예외도 없이 아래 규칙에 따라 '
   -> **분류:** \`together.select\` (선택형/단독형)
   -> **특징:** 가로로 긴 하나의 박스 안에 빈칸(□)들이 포함된 풀이 과정이 나열됨.
 
-  - **[Case C] 위 두 아이콘이 없고, 문제 옆에 의미 있는 '삽화/사진/도형'이 있음**
-  -> **분류:** \`question.image\` (삽화 포함 단일 문제)
-  -> **특징:** 텍스트가 상대적으로 길게 서술되어 있으며, 시각 자료(예: 직사각형 포토 카드, 기하 도형 등)가 문제 내용과 직결됨.
-
-- **[Case D] 위 두 아이콘이 없고, "문제 1", "문제 2" 등으로 시작함**
+- **[Case C] 위 두 아이콘이 없고, "문제 1", "문제 2" 등으로 시작함**
   -> **분류:** \`question.mathinput\` (일반 문제)
   -> **특징:** 특정 박스 템플릿 없이 일반적인 발문과 수식이 나열됨.
 - **텍스트가 많더라도 '풀이 과정'의 논리를 가지고 있다면 together.self 유형**
@@ -204,46 +195,108 @@ STEP 1의 결과에 따라 한 치의 예외도 없이 아래 규칙에 따라 '
    - 'subQuestions' 배열을 사용하세요.
    - 각 항목은 { 'label': '...', 'passage': '...', 'answer': '...', 'explanation': '...' } 형태입니다.
 
-3. **image 단일형 (question.image)**:
-   - 기하 도형, 실생활 사진 등 문제 풀이에 필수적인 이미지의 좌표를 'figure_bounds'에 정확히 [ymin, xmin, ymax, xmax] (0~1000 스케일)로 추출하세요. (단순 장식용 캐릭터는 추출하지 마세요)
-   - 'figure_alt'에 이미지의 상세한 설명을 작성하세요.
-   - 소문항이 있을 경우 view를 추가하세요. 
-   - 단일 문제이므로 'subQuestions' 배열에 **단 1개의 객체**만 생성하여 긴 문제 텍스트 전체를 'passage'나 'promptLatex'에 담으세요.
+
+// (상단 내용 유지 ...)
+
 **최종 JSON 응답은 마크다운 코드 블록 없이 순수 JSON만 반환하세요.**
-JSON 구조 예시:
+
+### [매우 중요: 다중 영역 분할 및 JSON 구조]
+한 이미지(페이지) 안에 '함께 풀기' 템플릿 영역과 하단의 일반 '문제' 영역이 함께 존재할 경우, 절대 전체를 하나의 객체로 뭉뚱그리지 마십시오.
+반드시 각각 독립된 객체로 분할하여 sections 배열 안에 순서대로 담아 반환해야 합니다.
+
+**JSON 구조 예시 (한 페이지에 함풀+스풀과 일반 문제가 같이 있는 경우):**
 {
-  "typeKey": "question.mathinput",
-  "mainQuestion": "문제 제목",
-  "guideText": "가이드 텍스트",
-  "figure_bounds": [0,0,0,0],
-  "figure_alt": "이미지 설명",
-  "subQuestions": [
-    { "label": "(1)", "passage": "내용", "answer": "정답", "explanation": "해설" }
+  "sections": [
+    {
+      "type": "함께 풀기 + 스스로 풀기",
+      "typeKey": "together.self",
+      "mainQuestion": "이차방정식을 푸시오.",
+      "guideText": "▷ 빈칸에 들어갈 값을 입력해 보세요.",
+      "figure_bounds": [0,0,0,0],
+      "figure_alt": "",
+      "lines": [
+        {
+          "label": "",
+          "parts": [
+            { "type": "text", "content": "x=" },
+            { "type": "blank", "options": ["3", "1", "-3"], "correctIndex": 1 }
+          ]
+        }
+      ],
+      "answers": ["3"]
+    },
+    {
+      "type": "문제",
+      "typeKey": "question.mathinput",
+      "mainQuestion": "다음 이차방정식을 푸시오.",
+      "guideText": "▷ 빈칸에 들어갈 값을 입력해 보세요.",
+      "figure_bounds": [0,0,0,0],
+      "figure_alt": "",
+      "subQuestions": [
+        { "label": "(1)", "passage": "\\\\( x^2-3x+1=0 \\\\)", "answer": "정답", "explanation": "" },
+        { "label": "(2)", "passage": "\\\\( x^2+2x-5=0 \\\\)", "answer": "정답", "explanation": "" }
+      ]
+    }
   ]
-}`;
+}
+`;
 
 
 // --- Helpers ---
+
+// [NEW] Safe Math Splitter (Handles brace depth to avoid unbalanced eqn)
+const splitMathSafely = (text) => {
+    // 1. 수식 블록 \(( ... \) 또는 \[ ... \] 을 찾음
+    return text.replace(/(\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\])/g, (match) => {
+        const startDelim = match.startsWith('\\(') ? '\\(' : '\\[';
+        const endDelim = match.startsWith('\\(') ? '\\)' : '\\]';
+        const content = match.substring(2, match.length - 2);
+
+        if (!content.includes('□') && !content.includes('_')) return match;
+
+        // 중괄호 균형을 맞추며 분할
+        const parts = [];
+        let currentPart = "";
+        let braceDepth = 0;
+
+        for (let i = 0; i < content.length; i++) {
+            const char = content[i];
+            if (char === '{') braceDepth++;
+            else if (char === '}') braceDepth--;
+
+            if (char === '□' || char === '_') {
+                // 현재까지의 파트를 밸런스 맞춰서 추가
+                if (currentPart.trim()) {
+                    let partToPush = currentPart;
+                    if (braceDepth > 0) partToPush += "}".repeat(braceDepth);
+                    parts.push(`${startDelim}${partToPush}${endDelim}`);
+                }
+
+                parts.push(char); // 빈칸 추가
+
+                // 다음 파트 시작 시 열려있던 중괄호를 다시 열어줌
+                currentPart = braceDepth > 0 ? "{".repeat(braceDepth) : "";
+            } else {
+                currentPart += char;
+            }
+        }
+
+        if (currentPart.trim() && currentPart !== "{".repeat(braceDepth)) {
+            let partToPush = currentPart;
+            if (braceDepth > 0) partToPush += "}".repeat(braceDepth);
+            parts.push(`${startDelim}${partToPush}${endDelim}`);
+        }
+
+        return parts.join('');
+    });
+};
 
 // [NEW] Text to Lines/Parts Parser
 const parseTextToLines = (text, answers = []) => {
     if (!text) return [];
 
-    // [MODIFIED] 수식 블록 내부에 □ 또는 _ 가 있는 경우 미리 분리하여 데이터 파편화 방지
-    let processedText = text;
-    processedText = processedText.replace(/(\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\])/g, (match) => {
-        const content = match.substring(2, match.length - 2);
-        if (content.includes('□') || content.includes('_')) {
-            const startDelim = match.startsWith('\\(') ? '\\(' : '\\[';
-            const endDelim = match.startsWith('\\(') ? '\\)' : '\\]';
-
-            return content.split(/(□|_)/g).map(part => {
-                if (part === '□' || part === '_') return part;
-                return part.trim() ? `${startDelim}${part}${endDelim}` : "";
-            }).join('');
-        }
-        return match;
-    });
+    // [MODIFIED] 수식 블록 내부에 □ 또는 _ 가 있는 경우 안전하게 분리
+    let processedText = splitMathSafely(text);
 
     const lines = processedText.split('\n');
     let globalBlankIdx = 0;
@@ -677,11 +730,25 @@ const App = () => {
         // [NEW] 라벨 노출(labelEnabled) 설정 반영 (TogetherSelf용)
         const processedBuildPages = buildPages.map(page => {
             if (page.data && page.data.typeKey === TYPE_KEYS.TOGETHER_SELF) {
+
+                // [FIX] '함께 풀기 + 스스로 풀기' 텍스트 간섭 버그 수정 (!includes("함께") 추가)
+                const pType = page.type || "";
+                const pTitle = page.title || "";
+                const dTitle = page.data.title || "";
+                const dType = page.data.type || "";
+
+                const isSelfPage =
+                    pType === "스스로 풀기" || dType === "스스로 풀기" ||
+                    (pTitle.includes("스스로") && !pTitle.includes("함께")) ||
+                    (dTitle.includes("스스로") && !dTitle.includes("함께"));
+
                 const newLines = (page.data.lines || []).map(line => ({
                     ...line,
                     parts: (line.parts || []).map(part => {
-                        if (part.type === 'blank' && part.labelEnabled === false) {
-                            // [FIX] 라벨 노출이 꺼져있으면 □ 대신 실제 정답 텍스트를 주입
+                        // 스스로 풀기 라인이면 절대 텍스트로 변환하지 않음
+                        const isSelfLine = line.isSelfLine || isSelfPage;
+
+                        if (part.type === 'blank' && part.labelEnabled === false && !isSelfLine) {
                             const options = Array.isArray(part.options) ? part.options : [];
                             const idx = (parseInt(part.correctIndex, 10) || 1) - 1;
                             const answer = options[idx] ?? "";
@@ -816,21 +883,8 @@ const App = () => {
         const isSelfStudy = typeKey === TYPE_KEYS.TOGETHER_SELF && (pageTitle?.includes('스스로') || false);
         const isTogether = typeKey === TYPE_KEYS.TOGETHER_SELECT || (typeKey === TYPE_KEYS.TOGETHER_SELF && !isSelfStudy);
 
-        // [MODIFIED] 수식 블록 내부에 □ 또는 _ 가 있는 경우 미리 분리하여 파편화 방지
-        let processedText = sanitizedText;
-        processedText = processedText.replace(/(\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\])/g, (match) => {
-            const content = match.substring(2, match.length - 2);
-            if (content.includes('□') || content.includes('_')) {
-                const startDelim = match.startsWith('\\(') ? '\\(' : '\\[';
-                const endDelim = match.startsWith('\\(') ? '\\)' : '\\]';
-
-                return content.split(/(□|_)/g).map(part => {
-                    if (part === '□' || part === '_') return part;
-                    return part.trim() ? `${startDelim}${part}${endDelim}` : "";
-                }).join('');
-            }
-            return match;
-        });
+        // [MODIFIED] 수식 블록 내부에 □ 또는 _ 가 있는 경우 안전하게 분리
+        let processedText = splitMathSafely(sanitizedText);
 
         const parts = processedText.split(/(\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]|□|_)/g);
         let blankIdx = 0;
@@ -923,14 +977,25 @@ const App = () => {
 
                 let rawJsonText = data.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim();
 
-                // 1. JSON 파싱 보정
-                const sanitizedJson = rawJsonText
-                    .replace(/\\/g, "\\\\")
-                    .replace(/\\\\"/g, '\\"')
-                    .replace(/\\\\n/g, '\\n')
-                    .replace(/\n/g, " ");
-
-                const parsed = JSON.parse(sanitizedJson);
+                // 1. JSON 파싱 (에러 방지 및 유연한 구조 대응)
+                let parsed;
+                try {
+                    // 1차 시도: 원본 그대로 파싱 (AI가 이미 완벽한 JSON을 준 경우)
+                    parsed = JSON.parse(rawJsonText);
+                } catch (e1) {
+                    try {
+                        // 2차 시도: 특수기호 보정 후 파싱 (수식 등에서 백슬래시 에러가 난 경우)
+                        const sanitizedJson = rawJsonText
+                            .replace(/\\/g, "\\\\")
+                            .replace(/\\\\"/g, '\\"')
+                            .replace(/\\\\n/g, '\\n')
+                            .replace(/\n/g, " ");
+                        parsed = JSON.parse(sanitizedJson);
+                    } catch (e2) {
+                        console.error("JSON 파싱 완전 실패:", rawJsonText);
+                        throw new Error("AI가 올바른 JSON 데이터를 반환하지 않았습니다. 다시 시도해 주세요.");
+                    }
+                }
 
                 // 2. 수식 백슬래시 복구 함수
                 const deepRestore = (obj) => {
@@ -944,7 +1009,20 @@ const App = () => {
                     return obj;
                 };
 
-                const pageSections = deepRestore(parsed.sections || []);
+                // [중요] AI가 sections 껍데기를 빼먹고 배열만 뱉거나 구조를 바꿨을 때를 대비한 3중 방어
+                let extractedSections = [];
+                if (Array.isArray(parsed)) {
+                    extractedSections = parsed;
+                } else if (parsed.sections && Array.isArray(parsed.sections)) {
+                    extractedSections = parsed.sections;
+                } else {
+                    // 객체 안에 배열이 하나라도 숨어있다면 그걸 끄집어내서 사용
+                    const fallbackArray = Object.values(parsed).find(v => Array.isArray(v));
+                    if (fallbackArray) extractedSections = fallbackArray;
+                    else extractedSections = [parsed]; // 최후의 수단: 단일 객체를 강제로 배열에 넣음
+                }
+
+                const pageSections = deepRestore(extractedSections);
                 const hasTogether = pageSections.some(s => (s.content.title || "").includes("함께"));
                 const hasSelf = pageSections.some(s => (s.content.title || "").includes("스스로"));
                 const isTogetherSelfSet = hasTogether && hasSelf;
@@ -1021,9 +1099,9 @@ const App = () => {
 
                         if (labelMatch) {
                             const rawText = trimmedLine.replace(labelMatch[0], "").trim();
-                            const blankCount = (rawText.match(/□|_/g) || []).length || 1;
-                            const chunk = finalAnswers.slice(answerPointer, answerPointer + blankCount);
-                            answerPointer += blankCount;
+                            const blankCount = (rawText.match(/□|_/g) || []).length;
+                            const chunk = blankCount > 0 ? finalAnswers.slice(answerPointer, answerPointer + blankCount) : [];
+                            if (blankCount > 0) answerPointer += blankCount;
 
                             // 번호 앞에 쌓인 지문이 있다면 합쳐줌
                             const finalPassage = pendingPassage ? `${pendingPassage}\n${rawText}` : rawText;
@@ -1083,14 +1161,8 @@ const App = () => {
                         lines = updatedSubQs.map((sq, sqIdx) => {
                             const parts = [];
 
-                            // [수정] 수식 밸런싱: 수식(\(...\)) 내부에 빈칸이 있으면 수식을 닫고 빈칸 뒤에 다시 열어줌
-                            let balancedPassage = (sq.passage || "");
-                            balancedPassage = balancedPassage.replace(/\\\((.*?)\\\)/g, (match, content) => {
-                                if (content.includes('□') || content.includes('_')) {
-                                    return `\\(${content.replace(/[□_]/g, '\\) □ \\(')}\\)`;
-                                }
-                                return match;
-                            });
+                            // [수정] 수식 밸런싱: 수식(\(...\)) 내부에 빈칸이 있으면 안전하게 분할
+                            let balancedPassage = splitMathSafely(sq.passage || "");
                             // 빈 수식(\( \)) 정리
                             balancedPassage = balancedPassage.replace(/\\\( *\\\)/g, "");
 
@@ -1134,7 +1206,7 @@ const App = () => {
                                     blankSerialIdx++;
                                 }
                             });
-                            return { label: sq.label || `(${sqIdx + 1})`, parts: parts, labelEnabled: false };
+                            return { label: sq.label || `(${sqIdx + 1})`, parts: parts, labelEnabled: false, isSelfLine: isThisSecSelf };
                         });
                     }
 
@@ -1339,17 +1411,25 @@ const App = () => {
                 // Analyze
                 let extracted = await analyzeImage(file);
 
-                // [NEW] Normalize extracted data (Ensure labels are ON by default)
-                if (extracted && extracted.lines) {
-                    extracted.lines = extracted.lines.map(line => ({
-                        ...line,
-                        parts: (line.parts || []).map(part => {
-                            if (part.type === 'blank' && part.labelEnabled === undefined) {
-                                return { ...part, labelEnabled: true };
-                            }
-                            return part;
-                        })
-                    }));
+                // [NEW] Normalize extracted data (Ensure labels are ON by default and tag Self lines)
+                if (extracted) {
+                    const isSelfStudyPage = (extracted.typeKey === TYPE_KEYS.TOGETHER_SELF && (extracted.subtype === "스스로 풀기" || (extracted.mainQuestion || "").includes("스스로")));
+
+                    if (extracted.lines) {
+                        extracted.lines = extracted.lines.map(line => ({
+                            ...line,
+                            isSelfLine: line.isSelfLine !== undefined ? line.isSelfLine : isSelfStudyPage,
+                            parts: (line.parts || []).map(part => {
+                                if (part.type === 'blank' && part.labelEnabled === undefined) {
+                                    return { ...part, labelEnabled: true };
+                                }
+                                return part;
+                            })
+                        }));
+                    }
+
+                    currentPages[targetIndex].type = isSelfStudyPage ? "스스로 풀기" : (extracted.typeKey === TYPE_KEYS.TOGETHER_SELF ? "함께 풀기 + 스스로 풀기" : "문제");
+                    currentPages[targetIndex].title = extracted.mainQuestion || (isSelfStudyPage ? "스스로 풀기" : "함께 풀기");
                 }
 
                 currentPages[targetIndex].data = extracted;
@@ -1883,7 +1963,7 @@ const App = () => {
                             )) : (
                                 <div className="py-40 text-center flex flex-col items-center gap-6">
                                     <div className="bg-white p-8 rounded-[2.5rem] text-indigo-200 shadow-xl shadow-indigo-50 border border-indigo-50"><Layers size={64} /></div>
-                                    <p className="font-bold text-slate-400 text-xl max-w-md mx-auto leading-relaxed">No storyboard data found.<br />Please proceed with <span className="text-indigo-500">Textbook Analysis</span> first.</p>
+                                    <p className="font-bold text-slate-400 text-xl max-w-md mx-auto leading-relaxed">AI 교과서 분석에 오류가 있습니다. <br /><span className="text-indigo-500">교과서 분석</span> 탭으로 가세요.</p>
                                 </div>
                             )}
                         </div>
@@ -2406,7 +2486,8 @@ function ensureTogetherSelf(data) {
 function TogetherSelfEditor({ currentData, onChange, onClickLabelZip }) {
     const lines = Array.isArray(currentData?.lines) ? currentData.lines : [];
     // [FIX] strategy 옵션에 의존하지 않고 로컬 스테이트로 탭 관리
-    const [activeTab, setActiveTab] = React.useState("together"); // "together" | "self"
+    const isThisPageSelf = currentData?.type === "스스로 풀기" || (currentData?.title || "").includes("스스로");
+    const [activeTab, setActiveTab] = React.useState(isThisPageSelf ? "self" : "together"); // [FIX] 초기 탭 설정 보강
 
     // blank 파트만 한 번에 모으기(순서 유지)
     const getBlanks = (targetLines) => {
@@ -2473,7 +2554,7 @@ function TogetherSelfEditor({ currentData, onChange, onClickLabelZip }) {
                     parts.push({ type: 'text', content: seg });
                 }
             });
-            return { label: `(${idx + 1})`, parts, labelEnabled: activeTab === 'together' };
+            return { label: `(${idx + 1})`, parts, labelEnabled: activeTab === 'together', isSelfLine: lines[idx]?.isSelfLine || isThisPageSelf };
         });
         onChange({ ...currentData, lines: newLines });
     };

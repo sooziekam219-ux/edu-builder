@@ -71,8 +71,11 @@ const mathInputHandler = {
         });
         inp.classList.add(q.inputWidth || "w200");
 
-        // id 조정 필요 시 (보통 템플릿에 QuizInput1, 2... 순서대로 있음)
-        // 여기서는 oldzip이 건드리지 않았으므로 패스하거나, 필요하면 재할당
+        // [추가된 부분] 복제된 p 태그의 ID를 QuizInput1, QuizInput2 등으로 고유하게 변경
+        const quizP = inp.querySelector("p[id^='QuizInput']");
+        if (quizP) {
+          quizP.id = `QuizInput${i + 1}`;
+        }
       }
 
       if (solveBtn) solveBtn.setAttribute("aria-haspopup", "dialog");
@@ -100,6 +103,17 @@ const mathInputHandler = {
         }
       });
     }
+    const allQuizInputs = doc.querySelectorAll("p[id^='QuizInput']");
+    allQuizInputs.forEach((el, index) => {
+      // 강제로 QuizInput1, QuizInput2, QuizInput3... 으로 덮어씌움
+      el.setAttribute("id", `QuizInput${index + 1}`);
+    });
+
+    const allMathBtns = doc.querySelectorAll(".btn-math");
+    allMathBtns.forEach((btn, index) => {
+      // 접근성 라벨도 1번, 2번... 으로 강제 매핑
+      btn.setAttribute("aria-label", `${index + 1}번 정답 입력칸`);
+    });
   },
 
   patchActJs({ actJsText, data, pageIndex }) {

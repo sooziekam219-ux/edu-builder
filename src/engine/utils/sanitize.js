@@ -42,7 +42,17 @@ export const sanitizeLaTeX = (str) => {
     sanitized = sanitized.replace(/\\\[(\s*)\\\]/g, "");
   } while (sanitized !== prev);
 
-  // [NEW] 5. 수식 내부의 끝 백슬래시 제거 (Codecogs 에러 방지)
+  // [NEW] 5. 중괄호 균형 보정 (unbalanced eqn 방지)
+  // 열린 { 개수와 닫힌 } 개수를 맞춰줌
+  const openBraces = (sanitized.match(/\{/g) || []).length;
+  const closeBraces = (sanitized.match(/\}/g) || []).length;
+  if (openBraces > closeBraces) {
+    sanitized += "}".repeat(openBraces - closeBraces);
+  } else if (closeBraces > openBraces) {
+    sanitized = "{".repeat(closeBraces - openBraces) + sanitized;
+  }
+
+  // [NEW] 6. 수식 내부의 끝 백슬래시 제거 (Codecogs 에러 방지)
   // \( x = 3 \ \) -> \( x = 3 \)
   sanitized = sanitized.replace(/\\\s*\\\)/g, "\\)");
   sanitized = sanitized.replace(/\\\s*\\\]/g, "\\\]");
