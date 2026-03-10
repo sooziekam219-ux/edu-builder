@@ -85,11 +85,34 @@ const createInputStrategy = (config) => {
                 if (inp) {
                     // Note: Input Styling is handled by zipProcessor via skeleton modification
 
+                    // [추가] QuizInput ID 부여 및 aria-label 부여
+                    const quizP = inp.querySelector("p[id^='QuizInput']");
+                    if (quizP) {
+                        quizP.id = `QuizInput${i + 1}`;
+                        quizP.className = `QuizInput${i + 1}`; // [추가] 클래스도 ID와 동일하게 부여
+                    }
+                    const btn = inp.querySelector("button");
+                    if (btn) {
+                        btn.setAttribute("aria-label", `${i + 1}번 정답 입력칸`);
+                    }
+
                     // Correct Answer injection
                     const correctEl = inp.querySelector(".correct");
                     if (correctEl) {
                         correctEl.innerHTML = sanitizeLaTeX(q.answerLatex);
                     }
+                }
+
+                // [추가] 하단 버튼들 (풀기, 다시 하기, 확인) aria-label 처리
+                const btnWrap = newRow.querySelector(".btn-wrap");
+                if (btnWrap) {
+                    const solve = btnWrap.querySelector(".btn-solve");
+                    const retry = btnWrap.querySelector(".btn-retry");
+                    const ok = btnWrap.querySelector(".btn-ok");
+
+                    if (solve) solve.setAttribute("aria-label", `${i + 1}번 풀이`);
+                    if (retry) retry.setAttribute("aria-label", `${i + 1}번 다시 하기`);
+                    if (ok) ok.setAttribute("aria-label", `${i + 1}번 확인`);
                 }
 
                 if (solveBtn) solveBtn.setAttribute("aria-haspopup", "dialog");
@@ -149,6 +172,25 @@ const createInputStrategy = (config) => {
                 /var\s+dap_array\s*=\s*[^;]*;/,
                 `var dap_array = [].concat(${concatArgs});`
             );
+
+            out += `\n\n/* 로컬 테스트를 위한 수식 입력 프롬프트 주입 */
+(function() {
+  if (window._hasCallExpressPatch) return;
+  window._hasCallExpressPatch = true;
+  const original_call_EXPRESS = window.call_EXPRESS;
+  window.call_EXPRESS = function (idx) {
+    if (typeof isMuto_fn === 'function' && isMuto_fn()) {
+      const latex = prompt("LaTeX 수식을 입력하세요:");
+      if (latex !== null && typeof ExpRtn_fn === 'function') {
+        ExpRtn_fn({ id: "EXPRESS_0" + idx, latex: latex });
+      }
+      return;
+    }
+    if (typeof original_call_EXPRESS === 'function') {
+      original_call_EXPRESS(idx);
+    }
+  };
+})();\n`;
 
             return out;
         }

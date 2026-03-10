@@ -22,6 +22,20 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
     const $main = doc.querySelector('main');
     if (!$main) return;
 
+    // [추가] 스스로 풀기 전용 공통 스타일 주입 (한 번만)
+    if (isSelfStudy) {
+        let $style = doc.querySelector('style#self-study-inline-style');
+        if (!$style) {
+            $style = doc.createElement('style');
+            $style.id = 'self-study-inline-style';
+            $style.textContent = `
+                mjx-container, math { margin-top: 8px; }
+                .inp-wrap p, .inp-wrap2 p { margin-top: -5px; }
+            `;
+            (doc.head || doc.body).appendChild($style);
+        }
+    }
+
     // 2. Title (H1)
     let $title = doc.querySelector('main > h1');
     if (!$title) {
@@ -58,7 +72,22 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
 
     if (Array.isArray(data.lines)) {
         data.lines.forEach(line => {
-            const parts = line.parts || (typeof line === 'string' ? [{ type: 'text', content: line }] : [{ type: 'text', content: line.text }]);
+            // [수정] parts가 없거나 비어있으면 promptLatex나 text를 기반으로 기본 구조 생성
+            let parts = line.parts;
+            if (!parts || parts.length === 0) {
+                parts = [];
+                const content = line.promptLatex || line.text || line.content || (typeof line === 'string' ? line : "");
+                if (content) {
+                    parts.push({ type: 'text', content: content });
+                }
+                // answerLatex가 있으면 빈칸으로 추가
+                if (line.answerLatex || line.answer) {
+                    parts.push({
+                        type: 'blank',
+                        answerLatex: line.answerLatex || line.answer
+                    });
+                }
+            }
 
             if (isSelfStudy) {
                 // [Self Study Style] <div class="txt1 mb20 ml50 fw300">
@@ -76,19 +105,51 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
                         blankCount++;
                         const options = part.options || [];
                         const correctIdx = (parseInt(part.correctIndex, 10) || 1) - 1;
-                        const answer = options[correctIdx] || "";
+                        // [수정] answerLatex 필드도 확인
+                        const answer = part.answerLatex || options[correctIdx] || "";
 
                         const inpWrap = doc.createElement('div');
                         inpWrap.className = "inp-wrap m0 mr10";
                         const explanation = part.explanation || "";
+
+                        // [추가] 정답 길이에 따른 너비 자동 계산 (Self Study용)
+                        const cleanAns = String(answer || "")
+                            .replace(/\\\(|\\\)|\\\[|\\\]/g, '')
+                            .replace(/\\left|\\right/g, '')
+
+                            .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, (match, a, b) => {
+                                return a.length >= b.length ? a : b;
+                            })
+                            .replace(/\\sqrt(\{[^{}]*\}|.)/g, (match, p1) => {
+                                return p1 ? p1.replace(/[{}]/g, '') : "";
+                            })
+                            .replace(/\\circ/g, '')
+                            .replace(/\\[a-zA-Z]+/g, ' ')
+                            .trim();
+
+                        let widthClass = "w150";
+
+                        const len = cleanAns.length;
+                        if (len <= 4) widthClass = "w150";
+                        else if (len <= 6) widthClass = "w250";
+                        else if (len <= 9) widthClass = "w300";
+                        else if (len <= 13) widthClass = "w400";
+                        else if (len <= 16) widthClass = "w500";
+                        else widthClass = "w600";
+
+                        // [수정] onclick 제거, ID와 클래스(너비/마진) 적용
                         inpWrap.innerHTML = `
-                            <div class="w150">
-                                <button type="button" class="btn-math">${blankCount}번 정답 입력칸</button>
-                                <p id="QuizInput${blankCount}" style="padding: 0px 33px;"></p>
-                                <div class="correct">${sanitizeLaTeX(answer)}</div>
-                                ${explanation ? `<p class="explanation-text" style="display:none">${sanitizeLaTeX(explanation)}</p>` : ''}
-                            </div>
-                        `;
+    <div class="${widthClass} ml10 mr10">
+        <button type="button" class="btn-math">${blankCount}번 정답 입력칸</button>
+        <p id="QuizInput${blankCount}" 
+           class="QuizInput${blankCount}" 
+           data-no_idx="${blankCount}" 
+           data-class_idx="1" 
+           style="padding: 0px 33px;"></p>
+        <div class="correct">${sanitizeLaTeX(answer)}</div>
+        ${explanation ? `<p class="explanation-text" style="display:none">${sanitizeLaTeX(explanation)}</p>` : ''}
+    </div>
+`;
                         div.appendChild(inpWrap);
                     }
                 });
@@ -114,7 +175,8 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
                         blankCount++;
                         const options = part.options || [];
                         const correctIdx = (parseInt(part.correctIndex, 10) || 1) - 1;
-                        const answer = options[correctIdx] || "";
+                        // [수정] answerLatex 필드도 확인
+                        const answer = part.answerLatex || options[correctIdx] || "";
 
                         const maskWrap = doc.createElement('span');
                         maskWrap.className = "btn-mask-wrap";

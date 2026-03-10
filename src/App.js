@@ -2649,12 +2649,11 @@ function TogetherSelfEditor({ currentData, onChange, onClickLabelZip }) {
                     <div className="space-y-3">
                         {blanks.map(({ li, pi, part }, idx) => (
                             <div key={`${li}-${pi}`} className="flex items-center gap-3 bg-white/80 backdrop-blur-sm rounded-2xl border border-amber-100 p-4 shadow-sm">
-                                <div className="w-10 h-10 rounded-xl bg-amber-500 text-white font-black flex items-center justify-center shadow-lg shadow-amber-100">
-                                    {idx + 1}
+                                <div className="w-15 h-10 rounded-md bg-amber-500 text-white text-xs font-black flex items-center justify-center shadow-lg shadow-amber-100">
+                                    라벨 {idx + 1}
                                 </div>
                                 <div className="flex-1 grid grid-cols-4 gap-4 items-center">
                                     <div className="col-span-3">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">라벨 번호(정답)</label>
                                         <input
                                             type="text"
                                             className="w-full p-3 rounded-xl border border-slate-200 font-bold focus:border-amber-400 outline-none transition-all"

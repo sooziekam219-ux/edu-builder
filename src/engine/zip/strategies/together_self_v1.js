@@ -1,5 +1,6 @@
 
 import { injectTogetherSelfBase } from "../handlers/together+self/base";
+import togetherSelfHandler from "../handlers/together+self/index";
 // import { TYPE_KEYS } from "../../typeKeys";
 
 const createTogetherSelfStrategy = (config) => {
@@ -38,6 +39,11 @@ const createTogetherSelfStrategy = (config) => {
             injectTogetherSelfBase({ doc, data });
 
             // Additional Together+Self specific logic can go here (e.g., specialized act.js patching if needed)
+        },
+
+        // [추가] act.js 수정을 위해 핸들러의 메서드 호출
+        patchActJs({ actJsText, data, pageIndex }) {
+            return togetherSelfHandler.patchActJs({ actJsText, data, pageIndex });
         },
 
         // [Optional] Updates manifest.json (if needed)

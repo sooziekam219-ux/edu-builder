@@ -38,54 +38,110 @@ const mathInputHandler = {
     // 1. 공통 헤더/가이드/발문
     injectQuestionBase({ doc, data, manifest });
 
-    // 2. 문항 렌더링 (Clone -> Clear -> Rebuild Strategy from oldzip.js)
+    // [추가] 정렬을 위한 스타일 주입
+    if (!doc.getElementById('mathinput-inline-style')) {
+      const $style = doc.createElement('style');
+      $style.id = 'mathinput-inline-style';
+      $style.textContent = `
+            mjx-container, math { margin-top: 8px; }
+            .inp-wrap p, .inp-wrap2 p { margin-top: -5px; }
+        `;
+      const head = doc.head || doc.getElementsByTagName('head')[0];
+      if (head) {
+        head.appendChild($style);
+      } else {
+        (doc.body || doc.documentElement).appendChild($style);
+      }
+    }
+
+    // 2. 문항 렌더링 (Clone -> Clear -> Rebuild Strategy)
     const rowTemplate = doc.querySelector(".flex-row.ai-s.jc-sb");
     if (!rowTemplate) return;
 
     const parent = rowTemplate.parentNode;
-    // 기존 문항(템플릿에 박혀있는 가짜 문항들) 제거
-    const existingRows = Array.from(parent.querySelectorAll(".flex-row.ai-s.jc-sb")).filter((r) =>
-      r.querySelector(".a2")
-    );
+    const existingRows = Array.from(parent.querySelectorAll(".flex-row.ai-s.jc-sb"));
     existingRows.forEach((r) => r.remove());
 
-    // 데이터 기반 생성
-    // (mathinput은 보통 페이지 구분 없이 쭉 나열하거나, 템플릿에 따라 다를 수 있음.
-    //  oldzip.js는 페이지 구분 없이 subQuestions 전체를 렌더링했음. 여기서도 전체 렌더링 가정)
-    //  만약 페이지네이션이 필요하다면 slice 로직 추가 필요. (여기서는 oldzip 로직 준수)
+    // injectHtmlPage 내부의 루프 부분 수정
     (data.questions || []).forEach((q, i) => {
       const newRow = rowTemplate.cloneNode(true);
 
       const label = newRow.querySelector(".a2 label");
       const p = newRow.querySelector(".a2 p");
+      // 중요: inp-wrap 내부의 div를 찾을 때도 newRow 안에서 수행
       const inp = newRow.querySelector(".inp-wrap > div");
       const solveBtn = newRow.querySelector(".btn-solve");
 
       if (label) label.textContent = q.label || `(${i + 1})`;
       if (p) p.innerHTML = sanitizeLaTeX(q.promptLatex);
 
-      // 입력칸 너비 조정
+      // 입력칸 ID 업데이트
       if (inp) {
-        inp.classList.forEach((c) => {
-          if (c.startsWith("w") && c !== "wrap") inp.classList.remove(c);
-        });
-        inp.classList.add(q.inputWidth || "w200");
+        // [추가] 정답 분석 및 너비 클래스 계산
+        const answer = q.answerLatex || "";
+        const cleanAns = String(answer || "")
+          .replace(/\\\(|\\\)|\\\[|\\\]/g, '')
+          .replace(/\\left|\\right/g, '')
 
-        // [추가된 부분] 복제된 p 태그의 ID를 QuizInput1, QuizInput2 등으로 고유하게 변경
+          .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, (match, a, b) => {
+            return a.length >= b.length ? a : b;
+          })
+          .replace(/\\sqrt(\{[^{}]*\}|.)/g, (match, p1) => {
+            return p1 ? p1.replace(/[{}]/g, '') : "";
+          })
+          .replace(/\\circ/g, '')
+          .replace(/\\[a-zA-Z]+/g, ' ')
+          .trim();
+
+        let widthClass = "w200";
+
+        const len = cleanAns.length;
+        if (len <= 4) widthClass = "w150";
+        else if (len <= 6) widthClass = "w250";
+        else if (len <= 9) widthClass = "w300";
+        else if (len <= 13) widthClass = "w400";
+        else if (len <= 16) widthClass = "w500";
+        else widthClass = "w600";
+
+        inp.className = `${widthClass} ml10 mr10`; // 기존 클래스 교체 및 마진 추가
+
+        // [수정된 부분] QuizInput ID 및 aria-label 부여
         const quizP = inp.querySelector("p[id^='QuizInput']");
         if (quizP) {
           quizP.id = `QuizInput${i + 1}`;
+          quizP.className = `QuizInput${i + 1}`; // [추가] 클래스도 ID와 동일하게 부여
+        }
+
+        // 버튼을 찾아서 aria-label 부여 (.btn-solve 또는 .btn-math)
+        const btn = inp.querySelector("button");
+        if (btn) {
+          btn.setAttribute("aria-label", `${i + 1}번 정답 입력칸`);
         }
       }
 
-      if (solveBtn) solveBtn.setAttribute("aria-haspopup", "dialog");
+      // [추가] 하단 버튼들 (풀기, 다시 하기, 확인) aria-label 처리
+      const btnWrap = newRow.querySelector(".btn-wrap");
+      if (btnWrap) {
+        const solve = btnWrap.querySelector(".btn-solve");
+        const retry = btnWrap.querySelector(".btn-retry");
+        const ok = btnWrap.querySelector(".btn-ok");
 
-      // 마지막 요소 아니면 마진 추가
-      if (i !== (data.questions.length - 1)) {
-        newRow.classList.add("mb80");
-        newRow.style.marginBottom = "80px"; // 안전하게 인라인 스타일도 or class check
+        if (solve) solve.setAttribute("aria-label", `${i + 1}번 풀이`);
+        if (retry) retry.setAttribute("aria-label", `${i + 1}번 다시 하기`);
+        if (ok) ok.setAttribute("aria-label", `${i + 1}번 확인`);
       }
 
+      if (solveBtn) {
+        solveBtn.setAttribute("aria-haspopup", "dialog");
+      }
+
+      // 4) 마진 처리
+      if (i !== (data.questions.length - 1)) {
+        newRow.classList.add("mb80");
+        newRow.style.marginBottom = "80px";
+      }
+
+      // 5) 최종 추가
       parent.appendChild(newRow);
     });
 
@@ -103,17 +159,6 @@ const mathInputHandler = {
         }
       });
     }
-    const allQuizInputs = doc.querySelectorAll("p[id^='QuizInput']");
-    allQuizInputs.forEach((el, index) => {
-      // 강제로 QuizInput1, QuizInput2, QuizInput3... 으로 덮어씌움
-      el.setAttribute("id", `QuizInput${index + 1}`);
-    });
-
-    const allMathBtns = doc.querySelectorAll(".btn-math");
-    allMathBtns.forEach((btn, index) => {
-      // 접근성 라벨도 1번, 2번... 으로 강제 매핑
-      btn.setAttribute("aria-label", `${index + 1}번 정답 입력칸`);
-    });
   },
 
   patchActJs({ actJsText, data, pageIndex }) {
@@ -153,6 +198,25 @@ const mathInputHandler = {
       /(?:var|let|const)?\s+dap_array\s*=\s*[^;]*;?/,
       `var dap_array = [].concat(${concatArgs});`
     );
+
+    out += `\n\n/* 로컬 테스트를 위한 수식 입력 프롬프트 주입 */
+(function() {
+  if (window._hasCallExpressPatch) return;
+  window._hasCallExpressPatch = true;
+  const original_call_EXPRESS = window.call_EXPRESS;
+  window.call_EXPRESS = function (idx) {
+    if (typeof isMuto_fn === 'function' && isMuto_fn()) {
+      const latex = prompt("LaTeX 수식을 입력하세요:");
+      if (latex !== null && typeof ExpRtn_fn === 'function') {
+        ExpRtn_fn({ id: "EXPRESS_0" + idx, latex: latex });
+      }
+      return;
+    }
+    if (typeof original_call_EXPRESS === 'function') {
+      original_call_EXPRESS(idx);
+    }
+  };
+})();\n`;
 
     return out;
   },
