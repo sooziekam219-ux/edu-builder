@@ -170,17 +170,7 @@ STEP 1의 결과에 따라 한 치의 예외도 없이 아래 규칙에 따라 '
   -> **분류:** \`question.mathinput\` (일반 문제)
   -> **특징:** 특정 박스 템플릿 없이 일반적인 발문과 수식이 나열됨.
 
-- **[Case D] '함께 풀기' 템플릿 외부의 일반 '문제' 영역에 문제 풀이에 필수적인 '삽화(도형, 그래프, 표, 실생활 사진 등)'가 포함되어 있고 소문항이 없는 경우**
-  -> **분류:** \`question.image\` (이미지형 문제)
-  -> **특징:** 문제 텍스트보다 삽화 영역이 핵심이며, 반드시 \`figure_bounds\`를 추출해야 함.
-
-### STEP 3: 삽화(Figure) 영역 정밀 탐지 규칙 (Crucial for question.image)
-AI는 다음 지침에 따라 \`figure_bounds\`를 [ymin, xmin, ymax, xmax] (0~1000) 좌표로 추출하라:
-1. **필수 삽화 매핑**: 문제 텍스트에 "그림과 같이", "그래프에서", "정육각형" 등의 표현이 있다면 반드시 해당 영역을 포착하라.
-2. **최소 영역 원칙**: 텍스트를 제외하고 순수하게 삽화(도형, 기호 포함)만 포함하는 가장 타이트한 사각형 영역을 잡아야 함.
-3. **탐지 실패 방지**: 삽화가 흐릿하거나 작아도 실루엣을 따라 영역을 확정하라. 삽화가 없으면 [0, 0, 0, 0].
-
-### STEP 4: 스스로 풀기 정답 추론 특수 규칙 (Crucial for together.self)
+### STEP 3: 스스로 풀기 정답 추론 특수 규칙 (Crucial for together.self)
 '스스로 풀기'의 빈칸(밑줄) 정답을 추출할 때는 절대 임의로 계산 방식을 생략하거나 건너뛰지 마라. 반드시 짝꿍인 '함께 풀기'의 풀이 과정을 1:1 템플릿으로 사용하여 아래의 논리적 흐름(Chain of Thought)을 따라라:
 1. **패턴 매핑 (Pattern Mapping):** '함께 풀기'의 풀이 과정 각 줄에서 어떤 공식, 식의 변형, 연산 논리가 쓰였는지 파악하라.
 2. **숫자 치환 (Substitution):** '스스로 풀기'에 주어진 문제의 숫자와 조건을 '함께 풀기'와 완전히 동일한 위치에 대입하라. 
@@ -193,7 +183,7 @@ AI는 다음 지침에 따라 \`figure_bounds\`를 [ymin, xmin, ymax, xmax] (0~1
 - 이미지에 포함된 "답:", "정답:", "풀이:", "해설:"로 시작하는 텍스트는 교사용 정보이므로 **절대 'body'나 'content'에 포함하지 마라.**
 - 만약 문제 바로 아래에 정답이 적혀 있다면, 해당 정답은 'answers' 배열에만 넣고 'body'에서는 삭제하라.
 
-### STEP 5: 데이터 구조 및 분할 규칙:
+**유형별 데이터 구조 및 분할 규칙:**
 
 1. **[단독형 (together.select)]**: 
    - 1개의 객체 안에서 모두 처리하라.
@@ -280,24 +270,6 @@ AI는 다음 지침에 따라 \`figure_bounds\`를 [ymin, xmin, ymax, xmax] (0~1
       "explanation": ["(1) 인수분해하여 풉니다.", "(2) 인수분해하여 풉니다."],
       "figure_bounds": [0,0,0,0],
       "figure_alt": ""
-    },
-    {
-      "type": "이미지형",
-      "typeKey": "question.image",
-      "subtype": "이미지형",
-      "strategy": {
-        "name": "images_v1",
-        "options": { "inputKind": "math" }
-      },
-      "content": {
-        "title": "문제 2",
-        "instruction": "오른쪽 그림과 같은 삼각형의 넓이를 구하시오.",
-        "body": ""
-      },
-      "answers": ["24"],
-      "explanation": ["삼각형의 넓이는 (밑변 x 높이) / 2 이므로 (8 x 6) / 2 = 24 입니다."],
-      "figure_bounds": [150, 400, 450, 800],
-      "figure_alt": "밑변이 8, 높이가 6인 삼각형 그림"
     }
   ]
 }
@@ -451,28 +423,6 @@ const buildDraftInputConfig = ({
         };
     }
 
-    // [NEW] 2.5 Image-based Type
-    if (typeKey === TYPE_KEYS.QUESTION_IMAGE) {
-        return {
-            typeKey: TYPE_KEYS.QUESTION_IMAGE,
-            baseTemplateTypeKey: TYPE_KEYS.QUESTION_IMAGE,
-            manifest: {
-                rowTemplate: ".flex-row.ai-s.jc-sb",
-            },
-            strategy: {
-                name: "images_v1",
-                options: {
-                    inputKind: "math",
-                    hasImage: true,
-                    headerUrl,
-                    contentImageUrl,
-                    figure_bounds,
-                    figure_alt
-                }
-            }
-        };
-    }
-
     // 3. Together Type or Standard Input
     const finalTypeKey = typeKey || (isTogether ? "together.custom" : "input.custom");
 
@@ -539,7 +489,6 @@ const App = () => {
 
     const [removePagination, setRemovePagination] = useState(true);
     const [zoomedImage, setZoomedImage] = useState(null);
-    const [showDetectionOverlay, setShowDetectionOverlay] = useState(false); // [NEW] AI 탐지 영역 표시 여부
 
     // Derived Logic
     const activeData = buildPages[activePageIndex]?.data;
@@ -591,14 +540,7 @@ const App = () => {
         return () => unsubSnapshot();
     }, [user, db, appId]); // user가 변경될 때마다(로그인 성공 시) 실행
 
-    console.table(
-        templates.map(t => ({
-            id: t.id,
-            name: t.name,
-            typeKey: t.typeKey,
-            baseTemplateTypeKey: t.baseTemplateTypeKey
-        }))
-    );
+
 
 
     // ================================
@@ -629,46 +571,71 @@ const App = () => {
         const typeStr = activeData.type;
         if (typeStr.includes("함께 풀기 + 스스로 풀기")) detectedTypeKey = TYPE_KEYS.TOGETHER_SELF;
         else if (typeStr.includes("함께 풀기")) detectedTypeKey = TYPE_KEYS.TOGETHER_SELECT;
-        else if (typeStr.includes("이미지형")) detectedTypeKey = TYPE_KEYS.QUESTION_IMAGE;
         else if (typeStr.includes("문제") || typeStr.includes("예제")) detectedTypeKey = TYPE_KEYS.QUESTION_MATHINPUT;
     }
 
-    // 3️⃣ [NEW] Header Mapping for Exact Match
-    const TYPE_MAPPING = {
-        [TYPE_KEYS.QUESTION_MATHINPUT]: ["문제", "예제", "따라 하기", "수식 입력형"],
-        [TYPE_KEYS.QUESTION_IMAGE]: ["이미지형"],
-        [TYPE_KEYS.TOGETHER_SELECT]: ["함께 풀기"],
-        [TYPE_KEYS.TOGETHER_SELF]: ["함께 풀기 + 스스로 풀기"]
-    };
+    // 3️⃣ 기존 템플릿 존재 여부
+    const hasExactTemplate = detectedTypeKey
+        ? templates.some(t => t.typeKey === detectedTypeKey)
+        : false;
 
-    // 4️⃣ 기존 템플릿 존재 여부 및 상세 판별
-    const matchingDetectedTemplates = templates.filter(t => t.typeKey === detectedTypeKey);
-    const hasExistingTemplate = matchingDetectedTemplates.length > 0;
-
+    // 4️⃣ Detection Status 결정
     let detectionStatus = "UNKNOWN"; // EXACT | SIMILAR | NEW
+
     if (!detectedFamily) {
         detectionStatus = "UNKNOWN";
-    } else if (hasExistingTemplate) {
-        // [MODIFIED] Check if header also matches for "EXACT" status
-        const headerType = activeData?.type || "";
-        const allowedHeaders = TYPE_MAPPING[detectedTypeKey] || [];
-        const isHeaderMatch = allowedHeaders.some(h => headerType.includes(h));
-
-        if (isHeaderMatch) {
-            detectionStatus = "EXACT";
-        } else {
-            detectionStatus = "SIMILAR";
-        }
-    } else if (detectedTypeKey === TYPE_KEYS.TOGETHER_SELF || detectedFamily === "input") {
-        detectionStatus = "SIMILAR";
+    } else if (hasExactTemplate) {
+        detectionStatus = "EXACT";
+    } else if (detectedTypeKey === TYPE_KEYS.TOGETHER_SELF) {
+        detectionStatus = "SIMILAR"; // together_self_v1 전략으로 생성 가능
+    } else if (detectedFamily === "input") {
+        detectionStatus = "SIMILAR"; // input_v1 전략으로 생성 가능
     } else {
         detectionStatus = "NEW";
     }
 
 
     // 2. Filter Templates: If manual type selected, use it. Else if detected, use matching. Else show all?
+    // User said: "Advanced option can select existing". 
+    // Let's filter by selectedTypeKey if present.
     const filteredTemplates = templates.filter(t => !selectedTypeKey || t.typeKey === selectedTypeKey);
+
+    // 3. Status Logic
+    // EXISTING: Found templates matching the DETECTED type (regardless of selection?) -> Auto-match
+    // DRAFT: No matching templates for DETECTED type, but structure allows Input V1
+
+    // Find templates that match the *detected* type
+    const matchingDetectedTemplates = templates.filter(t => t.typeKey === detectedTypeKey);
+    const hasExistingTemplate = matchingDetectedTemplates.length > 0;
+
     const isInputType = detectedFamily === "input" || detectedFamily === "together";
+
+    // [Strict Detection Logic]
+
+    // Header Mapping (Title Type -> Template TypeKey)
+    const TYPE_MAPPING = {
+        [TYPE_KEYS.QUESTION_MATHINPUT]: ["문제", "예제", "따라 하기"], // Exact header matches
+        "together.select": ["함께 풀기"],
+        "together.self": ["함께 풀기 + 스스로 풀기"]
+    };
+
+    if (detectedTypeKey) {
+        // [New Logic using activeData.type if available]
+        const headerType = activeData?.type || "";
+        const allowedHeaders = TYPE_MAPPING[detectedTypeKey] || [];
+        const isHeaderMatch = allowedHeaders.some(h => headerType.includes(h));
+
+        if (hasExistingTemplate && isHeaderMatch) {
+            detectionStatus = "EXACT";
+        } else if (hasExistingTemplate && detectedTypeKey === TYPE_KEYS.QUESTION_MATHINPUT) {
+            // Structure OK, Key OK, but Header Mismatch -> Similar -> Draft
+            detectionStatus = "SIMILAR";
+        } else if (isInputType) {
+            detectionStatus = "SIMILAR"; // Draft mode for input
+        } else {
+            detectionStatus = "NEW";
+        }
+    }
 
     function renderTypeEditor(currentData) {
         const typeKey = currentData?.typeKey;
@@ -697,10 +664,6 @@ const App = () => {
                     onClickLabelZip={onClickLabelZip}
                 />
             );
-        }
-
-        if (typeKey === TYPE_KEYS.QUESTION_IMAGE) {
-            return <QuestionImageEditor currentData={currentData} onChange={updateCurrentPageData} />;
         }
 
         return <GenericFallbackEditor currentData={currentData} onChange={updateCurrentPageData} />;
@@ -751,7 +714,6 @@ const App = () => {
             let baseTypeKey = TYPE_KEYS.QUESTION_MATHINPUT;
             if (isTogetherSelf) baseTypeKey = TYPE_KEYS.TOGETHER_SELF;
             else if (isTogether) baseTypeKey = TYPE_KEYS.TOGETHER_SELECT;
-            else if (currentType === TYPE_KEYS.QUESTION_IMAGE) baseTypeKey = TYPE_KEYS.QUESTION_IMAGE;
 
             const fallback = templates.find(t => t.typeKey === baseTypeKey);
             finalTemplateId = fallback?.id;
@@ -1584,7 +1546,7 @@ const App = () => {
                         { id: 'analysis', icon: BookOpen, label: '교과서 분석' },
                         { id: 'storyboard', icon: Layers, label: '스토리보드' },
                         { id: 'builder', icon: Calculator, label: '콘텐츠 생성' },
-                        { id: 'library', icon: HardDrive, label: '라이브러리' }
+                        // { id: 'library', icon: HardDrive, label: '라이브러리' }
                     ].map(item => (
                         <button
                             key={item.id}
@@ -1823,8 +1785,6 @@ const App = () => {
                                                         else titleImg = ASSETS.TITLES['함께 풀기']; // 기본값은 함께 풀기
                                                     } else if (page.typeKey === 'together.select' || page.type === '함께 풀기') {
                                                         titleImg = ASSETS.TITLES['함께 풀기'];
-                                                    } else if (page.typeKey === 'question.image' || page.type === '이미지형') {
-                                                        titleImg = ASSETS.TITLES['문제'];
                                                     } else if (page.typeKey === 'question.mathinput' || page.type === '문제') {
                                                         titleImg = ASSETS.TITLES['문제'];
                                                     }
@@ -1840,91 +1800,6 @@ const App = () => {
                                                     </h5>
 
                                                     <div className="space-y-6 mt-8 pl-2 border-l-2 border-slate-100">
-                                                        {/* [NEW] 통합 삽화 및 크롭 에디터 영역 (페이지 레벨로 이동) */}
-                                                        {page.contentImageUrl && (page.typeKey === 'question.image' || page.type === '이미지형' || (page.figure_bounds && page.figure_bounds.some(v => v !== 0))) && (
-                                                            <div className="mb-10 space-y-4 pr-6">
-                                                                <div
-                                                                    className="relative rounded-[2.5rem] overflow-hidden border-4 border-rose-100 shadow-2xl bg-slate-50 aspect-video lg:aspect-[16/7] group/fig cursor-crosshair"
-                                                                    onMouseDown={(e) => {
-                                                                        const rect = e.currentTarget.getBoundingClientRect();
-                                                                        const x = ((e.clientX - rect.left) / rect.width) * 1000;
-                                                                        const y = ((e.clientY - rect.top) / rect.height) * 1000;
-
-                                                                        const updateBounds = (moveEvent) => {
-                                                                            const moveRect = e.currentTarget.getBoundingClientRect();
-                                                                            const moveX = ((moveEvent.clientX - moveRect.left) / moveRect.width) * 1000;
-                                                                            const moveY = ((moveEvent.clientY - moveRect.top) / moveRect.height) * 1000;
-
-                                                                            const newBounds = [
-                                                                                Math.max(0, Math.min(y, moveY)),
-                                                                                Math.max(0, Math.min(x, moveX)),
-                                                                                Math.min(1000, Math.max(y, moveY)),
-                                                                                Math.min(1000, Math.max(x, moveX))
-                                                                            ];
-
-                                                                            const newPages = [...pages];
-                                                                            newPages[pIdx] = { ...newPages[pIdx], figure_bounds: newBounds };
-                                                                            setPages(newPages);
-                                                                        };
-
-                                                                        const stopUpdate = () => {
-                                                                            window.removeEventListener('mousemove', updateBounds);
-                                                                            window.removeEventListener('mouseup', stopUpdate);
-                                                                        };
-
-                                                                        window.addEventListener('mousemove', updateBounds);
-                                                                        window.addEventListener('mouseup', stopUpdate);
-                                                                    }}
-                                                                >
-                                                                    <img src={page.contentImageUrl} className="w-full h-full object-contain pointer-events-none select-none" alt="Original" />
-                                                                    {page.figure_bounds && page.figure_bounds.some(v => v !== 0) && (
-                                                                        <div
-                                                                            className="absolute border-4 border-rose-500 bg-rose-500/20 shadow-[0_0_20px_rgba(244,63,94,0.4)] transition-all duration-75"
-                                                                            style={{
-                                                                                top: `${page.figure_bounds[0] / 10}%`,
-                                                                                left: `${page.figure_bounds[1] / 10}%`,
-                                                                                width: `${(page.figure_bounds[3] - page.figure_bounds[1]) / 10}%`,
-                                                                                height: `${(page.figure_bounds[2] - page.figure_bounds[0]) / 10}%`,
-                                                                            }}
-                                                                        >
-                                                                            <div className="absolute -top-7 left-0 bg-rose-500 text-white text-[10px] font-black px-2 py-1 rounded flex items-center gap-1 shadow-lg">
-                                                                                <Crop size={10} /> CROP AREA
-                                                                            </div>
-                                                                            <button
-                                                                                className="absolute -top-3 -right-3 w-6 h-6 bg-rose-600 text-white rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform"
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    const newPages = [...pages];
-                                                                                    newPages[pIdx] = { ...newPages[pIdx], figure_bounds: [0, 0, 0, 0] };
-                                                                                    setPages(newPages);
-                                                                                }}
-                                                                            >
-                                                                                ×
-                                                                            </button>
-                                                                        </div>
-                                                                    )}
-                                                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/fig:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-                                                                        <span className="text-white font-bold text-sm bg-black/50 px-4 py-2 rounded-full backdrop-blur-sm shadow-xl flex items-center gap-2">
-                                                                            <MousePointer2 size={16} /> 드래그하여 삽화 영역 지정
-                                                                        </span>
-                                                                    </div>
-                                                                </div>
-                                                                {(page.typeKey === 'question.image' || page.type === '이미지형') && (
-                                                                    <div className="p-6 bg-emerald-50 rounded-[2rem] border border-emerald-100 flex items-center justify-between">
-                                                                        <div>
-                                                                            <div className="text-[10px] font-black text-emerald-500 mb-1 uppercase tracking-widest">Expected Answer</div>
-                                                                            <div className="text-xl font-black text-emerald-700">
-                                                                                {renderMathToHTML(Array.isArray(page.answers) ? page.answers[0] : page.answers, page.typeKey, page.title)}
-                                                                            </div>
-                                                                        </div>
-                                                                        <div className="w-16 h-10 border border-slate-300 rounded-lg flex items-center justify-center bg-white shrink-0">
-                                                                            <img src="https://i.imgur.com/5LhWfL3.png" className="w-5 h-5 object-contain opacity-50" />
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        )}
-
                                                         {/* 1. 질문 리스트 및 Lines 렌더링 */}
                                                         {(page.typeKey?.startsWith('together') || page.type?.includes('함께')) && page.lines && page.lines.length > 0 ? (
                                                             <div className="space-y-4 pt-4">
@@ -1985,8 +1860,6 @@ const App = () => {
                                                                             </div>
                                                                         )}
                                                                     </div>
-                                                                    {/* (그 외 일반 렌더링은 위에서 처리한 이미지 영역을 공유함) */}
-
 
                                                                     {(page.typeKey === 'question.mathinput' || page.type === '문제') && (
                                                                         <div className="mt-4 flex justify-end">
@@ -2050,8 +1923,7 @@ const App = () => {
                                                         const detectedTypeKey = page.typeKey || (
                                                             page.type.includes("함께 풀기 + 스스로 풀기") ? TYPE_KEYS.TOGETHER_SELF :
                                                                 page.type.includes("함께 풀기") ? TYPE_KEYS.TOGETHER_SELECT :
-                                                                    page.type.includes("이미지형") ? TYPE_KEYS.QUESTION_IMAGE :
-                                                                        TYPE_KEYS.QUESTION_MATHINPUT
+                                                                    TYPE_KEYS.QUESTION_MATHINPUT
                                                         );
 
                                                         const isSelfStudy = (page.type || "").includes("스스로") || (page.title || "").includes("스스로");
@@ -2135,13 +2007,12 @@ const App = () => {
                                                             const typeMap = {
                                                                 '함께 풀기': TYPE_KEYS.TOGETHER_SELECT,
                                                                 '함께 풀기 + 스스로 풀기': TYPE_KEYS.TOGETHER_SELF,
-                                                                '이미지형': TYPE_KEYS.QUESTION_IMAGE,
                                                                 '문제': TYPE_KEYS.QUESTION_MATHINPUT,
                                                                 '수식 입력형': TYPE_KEYS.QUESTION_MATHINPUT,
                                                                 '스스로 풀기': TYPE_KEYS.QUESTION_MATHINPUT,
                                                                 '연습 하기': TYPE_KEYS.QUESTION_MATHINPUT
                                                             };
-                                                            setSelectedTypeKey(typeMap[page.type] || TYPE_KEYS.QUESTION_IMAGE || TYPE_KEYS.QUESTION_MATHINPUT);
+                                                            setSelectedTypeKey(typeMap[page.type] || TYPE_KEYS.QUESTION_MATHINPUT);
                                                         }
 
                                                     } catch (e) {
@@ -2377,45 +2248,14 @@ const App = () => {
                                                     <ImageIcon size={14} />
                                                     <span className="text-[10px] font-black uppercase tracking-wider">교과서 이미지</span>
                                                 </div>
-                                                <div className="flex items-center gap-4">
-                                                    {activeData?.figure_bounds && activeData?.figure_bounds.some(v => v !== 0) && (
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); setShowDetectionOverlay(!showDetectionOverlay); }}
-                                                            className={`px-3 py-1 rounded-full text-[9px] font-black transition-all border ${showDetectionOverlay ? 'bg-rose-500 text-white border-rose-400 shadow-md' : 'bg-slate-100 text-slate-400 border-slate-200'}`}
-                                                        >
-                                                            {showDetectionOverlay ? '영역 숨기기' : 'AI 탐지 영역 확인'}
-                                                        </button>
-                                                    )}
-                                                    <div className="text-[10px] font-bold text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity">Click to zoom</div>
-                                                </div>
+                                                <div className="text-[10px] font-bold text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity">Click to zoom</div>
                                             </div>
-                                            <div className="bg-slate-50 rounded-[1.5rem] overflow-hidden aspect-video border border-slate-100/50 relative">
+                                            <div className="bg-slate-50 rounded-[1.5rem] overflow-hidden aspect-video border border-slate-100/50">
                                                 <img
                                                     src={buildPages[activePageIndex].image}
                                                     className="w-full h-full object-contain"
                                                     alt="Source"
                                                 />
-                                                {/* AI Detection Overlay */}
-                                                {showDetectionOverlay && activeData?.figure_bounds && (
-                                                    <div
-                                                        style={{
-                                                            position: 'absolute',
-                                                            top: `${activeData.figure_bounds[0] / 10}%`,
-                                                            left: `${activeData.figure_bounds[1] / 10}%`,
-                                                            width: `${(activeData.figure_bounds[3] - activeData.figure_bounds[1]) / 10}%`,
-                                                            height: `${(activeData.figure_bounds[2] - activeData.figure_bounds[0]) / 10}%`,
-                                                            border: '3px solid #f43f5e',
-                                                            backgroundColor: 'rgba(244, 63, 94, 0.2)',
-                                                            pointerEvents: 'none',
-                                                            boxShadow: '0 0 20px rgba(244, 63, 94, 0.4)',
-                                                            zIndex: 20
-                                                        }}
-                                                    >
-                                                        <span className="absolute -top-7 left-0 bg-rose-500 text-white text-[9px] font-black px-2 py-1 rounded shadow-md whitespace-nowrap">
-                                                            AI DETECTED FIGURE
-                                                        </span>
-                                                    </div>
-                                                )}
                                             </div>
                                         </div>
                                     )}
@@ -2472,7 +2312,7 @@ const App = () => {
                         </div>
                     )}
 
-                    {activeTab === 'library' && (
+                    {/* {activeTab === 'library' && (
                         <div className="grid grid-cols-2 gap-12 animate-in fade-in duration-500 pb-20">
                             <div className="bg-white p-12 rounded-[3.5rem] border border-slate-200 shadow-sm relative overflow-hidden group flex flex-col">
                                 <h3 className="text-3xl font-black mb-8 text-slate-800 tracking-tight">Add New Template</h3>
@@ -2511,7 +2351,7 @@ const App = () => {
                                 </div>
                             </div>
                         </div>
-                    )}
+                    )} */}
                 </div>
             </main>
 
@@ -2935,80 +2775,6 @@ function GenericFallbackEditor({ currentData }) {
         <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-200 text-slate-500">
             <div className="font-black mb-2">이 타입은 전용 에디터가 없어요.</div>
             <pre className="text-xs overflow-auto">{JSON.stringify(currentData, null, 2)}</pre>
-        </div>
-    );
-}
-
-function QuestionImageEditor({ currentData, onChange }) {
-    const handleUpdate = (field, value) => {
-        onChange({ ...currentData, [field]: value });
-    };
-
-    return (
-        <div className="space-y-8">
-            <div className="p-8 bg-emerald-50/60 border border-emerald-200 rounded-[2.5rem] space-y-6">
-                <div>
-                    <div className="text-xs font-black uppercase tracking-widest text-emerald-600 mb-4">이미지형 문제 설정</div>
-                    <div className="space-y-6">
-                        <div>
-                            <label className="text-xs font-bold text-slate-400 uppercase mb-2 block tracking-widest ml-1">정답 (Answer)</label>
-                            <input
-                                className="w-full p-4 bg-white border border-emerald-100 rounded-2xl text-lg font-bold text-emerald-700 outline-none focus:ring-4 ring-emerald-500/10 transition-all"
-                                value={currentData.answer || ""}
-                                onChange={(e) => handleUpdate("answer", e.target.value)}
-                                placeholder="정답을 입력하세요 (예: 25\pi)"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="text-xs font-bold text-slate-400 uppercase mb-2 block tracking-widest ml-1">해설 (Explanation)</label>
-                            <textarea
-                                className="w-full p-4 bg-white border border-emerald-100 rounded-2xl text-sm font-medium text-slate-700 outline-none focus:ring-4 ring-emerald-500/10 transition-all min-h-[120px]"
-                                value={currentData.explanation || ""}
-                                onChange={(e) => handleUpdate("explanation", e.target.value)}
-                                placeholder="상세한 풀이 과정을 입력하세요."
-                            />
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div className="p-8 bg-rose-50/40 border border-rose-100 rounded-[2.5rem] space-y-6">
-                <div className="flex items-center justify-between">
-                    <div className="text-xs font-black uppercase tracking-widest text-rose-500">AI 삽화 탐지 정보 (Advanced)</div>
-                    <span className="text-[10px] font-bold text-rose-300">이 영역이 실제 문제 삽화를 포함해야 합니다.</span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-6">
-                    <div>
-                        <label className="text-xs font-bold text-slate-400 mb-2 block ml-1">Figure Bounds (ymin, xmin, ymax, xmax)</label>
-                        <div className="flex gap-2">
-                            {(currentData.figure_bounds || [0, 0, 0, 0]).map((val, idx) => (
-                                <input
-                                    key={idx}
-                                    type="number"
-                                    className="w-full p-2 bg-white border border-rose-100 rounded-xl text-center font-bold text-xs text-rose-600"
-                                    value={val}
-                                    onChange={(e) => {
-                                        const next = [...(currentData.figure_bounds || [0, 0, 0, 0])];
-                                        next[idx] = parseInt(e.target.value) || 0;
-                                        handleUpdate("figure_bounds", next);
-                                    }}
-                                />
-                            ))}
-                        </div>
-                    </div>
-                    <div>
-                        <label className="text-xs font-bold text-slate-400 mb-2 block ml-1">Figure Alt / Description</label>
-                        <input
-                            className="w-full p-2 bg-white border border-rose-100 rounded-xl font-medium text-xs text-slate-600 outline-none"
-                            value={currentData.figure_alt || ""}
-                            onChange={(e) => handleUpdate("figure_alt", e.target.value)}
-                            placeholder="삽화에 대해 설명해주세요."
-                        />
-                    </div>
-                </div>
-            </div>
         </div>
     );
 }

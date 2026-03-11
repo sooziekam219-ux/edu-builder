@@ -5,11 +5,9 @@ import { collection, getDocs } from "firebase/firestore";
 import togetherSelect from "./handlers/together/select";
 import questionMathinput from "./handlers/question/mathinput"; // 이미 쓰고 있으면 그걸로
 import questionTextinput from "./handlers/question/textinput"; // [NEW] Strategy Pattern (Input v1)
-import questionImage from "./handlers/question/image"; // [NEW]
 import togetherSelfHandler from "./handlers/together+self/index"; // [NEW]
 
 import createInputStrategy from "./strategies/input_v1";
-import createImagesStrategy from "./strategies/images_v1"; // [NEW]
 import createTogetherStrategy from "./strategies/together_v1";
 import createTogetherSelfStrategy from "./strategies/together_self_v1"; // [NEW]
 import { loadManifest } from "./manifest"; // [NEW]
@@ -19,7 +17,6 @@ const ENGINE_BY_TYPEKEY = {
   [togetherSelect.typeKey]: togetherSelect,
   [questionMathinput.typeKey]: questionMathinput,
   [questionTextinput.typeKey]: questionTextinput,
-  [questionImage.typeKey]: questionImage,
   [togetherSelfHandler.typeKey]: togetherSelfHandler, // [NEW]
 };
 
@@ -77,34 +74,8 @@ export async function processAndDownloadZip({
 
   try {
     // 1) 템플릿 메타
-    let templateMeta = templates.find((t) => t.id === selectedTemplateId);
-
-    if (customConfig?.baseTemplateTypeKey) {
-      const matchedBaseTemplate =
-        templates.find(
-          (t) =>
-            t.typeKey === customConfig.baseTemplateTypeKey &&
-            String(t.id).startsWith("temp_")
-        ) ||
-        templates.find(
-          (t) => t.typeKey === customConfig.baseTemplateTypeKey
-        );
-
-      if (matchedBaseTemplate) {
-        templateMeta = matchedBaseTemplate;
-      } else {
-        console.warn(
-          "[ZIP] baseTemplateTypeKey에 해당하는 템플릿을 찾지 못해 selectedTemplateId를 사용합니다:",
-          customConfig.baseTemplateTypeKey
-        );
-      }
-    }
-
-    if (!templateMeta) {
-      throw new Error("템플릿 메타데이터를 찾을 수 없습니다.");
-    }
-
-    const templateIdToUse = templateMeta.id;
+    const templateMeta = templates.find((t) => t.id === selectedTemplateId);
+    if (!templateMeta) throw new Error("템플릿 메타데이터를 찾을 수 없습니다.");
     //const baseTemplateId =
     //  customConfig?.baseTemplateTypeKey
     //    ? templates.find(t => t.typeKey === customConfig.baseTemplateTypeKey)?.id
@@ -124,9 +95,6 @@ export async function processAndDownloadZip({
       } else if (typeKey === TYPE_KEYS.TOGETHER_SELF) {
         console.log("Together+Self Strategy Selected");
         engine = createTogetherSelfStrategy(customConfig);
-      } else if (typeKey === TYPE_KEYS.QUESTION_IMAGE) {
-        console.log("Images Strategy Selected");
-        engine = createImagesStrategy(customConfig);
       } else {
         // Default to input_v1 (input.custom)
         engine = createInputStrategy(customConfig);
@@ -139,15 +107,6 @@ export async function processAndDownloadZip({
     if (!typeKey) throw new Error("템플릿에 typeKey가 없습니다.");
     if (!engine) throw new Error(`엔진이 없습니다: ${typeKey}`);
 
-    console.log("[ZIP] selectedTemplateId:", selectedTemplateId);
-    console.log("[ZIP] customConfig.baseTemplateTypeKey:", customConfig?.baseTemplateTypeKey);
-    console.log("[ZIP] resolved templateMeta:", templateMeta);
-    console.log("[ZIP] templateIdToUse:", templateIdToUse);
-    console.log("[ZIP] templateMeta.typeKey:", templateMeta?.typeKey);
-    console.log(
-      "[ZIP] chunks path:",
-      `artifacts/${appId}/public/data/templates/${templateIdToUse}/chunks`
-    );
     // 2) Firestore chunks에서 zip 복원
     const chunksRef = collection(
       db,
@@ -156,7 +115,7 @@ export async function processAndDownloadZip({
       "public",
       "data",
       "templates",
-      templateIdToUse,
+      selectedTemplateId,
       "chunks"
     );
     const chunksSnap = await getDocs(chunksRef);
@@ -165,9 +124,6 @@ export async function processAndDownloadZip({
         "서버에서 템플릿 데이터를 찾을 수 없습니다. (업로드 실패 가능성)\n해당 템플릿을 삭제 후 다시 업로드해주세요."
       );
     }
-    console.log("[ZIP] chunksSnap.empty:", chunksSnap.empty);
-    console.log("[ZIP] chunks count:", chunksSnap.size);
-    console.log("[ZIP] chunk ids:", chunksSnap.docs.map(d => d.id));
 
     const sorted = chunksSnap.docs.map((d) => d.data()).sort((a, b) => a.index - b.index);
 
