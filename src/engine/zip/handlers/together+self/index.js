@@ -8,7 +8,8 @@ const togetherSelfHandler = {
   // 데이터를 핸들러가 처리하기 편한 형태로 정규화
   normalize(raw) {
     return {
-      title: raw?.mainQuestion || raw?.title || "함께 풀기",
+      title: raw?.title || "",
+      mainQuestion: raw?.mainQuestion || "", // 필드 분리
       lines: raw?.subQuestions || raw?.lines || [],
       // Other properties if needed
     };
@@ -41,10 +42,26 @@ const togetherSelfHandler = {
 
     const processAnswer = (ans) => {
       if (!ans) return "";
-      // | 기호가 있으면 다중 답안으로 처리하여 배열 반환
+
+      // | 기호가 있으면 다중 답안으로 분리
       const parts = ans.split('|').map(p => cleanLatex(p)).filter(p => p !== "");
-      if (parts.length > 1) return parts;
-      return parts[0] || "";
+
+      const result = parts.map(p => {
+        if (p.includes("\\frac") || p.includes("\\dfrac")) {
+          const variants = new Set([p]);
+          // \frac <-> \dfrac 상호 치환
+          if (p.includes("\\frac")) variants.add(p.replace(/\\frac/g, "\\dfrac"));
+          if (p.includes("\\dfrac")) variants.add(p.replace(/\\dfrac/g, "\\frac"));
+
+          const variantArray = Array.from(variants);
+          return variantArray.length > 1 ? variantArray : variantArray[0];
+        }
+        return p;
+      });
+
+      // 답안이 하나뿐이고 분수가 아니면 문자열로, 그 외엔 (중첩) 배열로 반환
+      if (result.length === 1) return result[0];
+      return result;
     };
 
     // Collect all blank answers
@@ -102,7 +119,32 @@ const togetherSelfHandler = {
       original_call_EXPRESS(idx);
     }
   };
-})();\n`;
+})();
+
+/* 딱지 벗길 때 수식 재렌더링 주입 */
+(function() {
+  const handleMaskClick = function(e) {
+    const btn = e.target.closest('.btn-mask');
+    if (!btn) return;
+
+    const answerSpan = btn.nextElementSibling;
+    if (!answerSpan || !answerSpan.classList.contains('mask-answer')) return;
+
+    // 기존 공통 스크립트가 hide/display 처리한 뒤 재렌더
+    setTimeout(function() {
+      if (typeof MathJax !== 'undefined') {
+        if (MathJax.typesetPromise) {
+          MathJax.typesetPromise([answerSpan]);
+        } else if (MathJax.Hub && MathJax.Hub.Queue) {
+          MathJax.Hub.Queue(["Typeset", MathJax.Hub, answerSpan]);
+        }
+      }
+    }, 180);
+  };
+
+  document.addEventListener('click', handleMaskClick);
+})();
+`;
 
     return out;
   }

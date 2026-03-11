@@ -7,6 +7,8 @@ function normalize(raw) {
   // zipProcessor가 extractedBuildData.lines 형태를 만든다고 가정
   return {
     header: raw?.header,
+    title: raw?.title || "",
+    mainQuestion: raw?.mainQuestion || "", // 필드 분리
     guideText: raw?.guideText ?? raw?.guide ?? "",
     lines: raw?.lines ?? [],
   };

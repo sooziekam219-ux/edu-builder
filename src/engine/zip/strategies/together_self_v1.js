@@ -11,13 +11,23 @@ const createTogetherSelfStrategy = (config) => {
         // _typeKey: TYPE_KEYS.TOGETHER_SELF,
 
         // [Required] Returns the HTML template path inside the ZIP
-        getSkeletonConfig() {
+        getSkeletonConfig(data) {
             // Determine which view to clone based on content type
-            // [FIX] Use explicit isSelfStudy flag or fallback to headerUrl check
-            const isSelfStudy = options.isSelfStudy || (options.headerUrl && options.headerUrl.includes("self"));
+            // [FIX] Determine from page data dynamically, not static options
+            const dTitle = data?.title || "";
+            const isSelfStudy = (dTitle.includes("스스로") && !dTitle.includes("함께"));
+
+            let hUrl = options.headerUrl;
+            if (isSelfStudy) {
+                hUrl = "images/tit-self.png";
+            } else {
+                // 함께 풀기 번호 분석
+                const match = dTitle.match(/함께\s*풀기\s*(\d+)/) || dTitle.match(/문제\s*(\d+)/);
+                if (match) hUrl = `images/tit-together${match[1]}.png`;
+            }
 
             return {
-                headerUrl: options.headerUrl,
+                headerUrl: hUrl,
                 contentImageUrl: options.hasImage ? (options.contentImageUrl || null) : null,
                 figureBounds: options.figureBounds,
                 figureAlt: options.figureAlt,
@@ -28,7 +38,9 @@ const createTogetherSelfStrategy = (config) => {
 
         normalize(raw) {
             return {
-                title: raw?.mainQuestion || raw?.title || "함께 풀기",
+                header: raw?.header,
+                title: raw?.title || "",
+                mainQuestion: raw?.mainQuestion || "", // 필드 분리
                 lines: raw?.lines || raw?.subQuestions || [],
             };
         },

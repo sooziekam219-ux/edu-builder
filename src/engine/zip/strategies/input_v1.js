@@ -1,4 +1,3 @@
-
 import { injectQuestionBase } from "../handlers/question/base";
 import { sanitizeLaTeX } from "../../utils/sanitize";
 
@@ -17,6 +16,45 @@ const createInputStrategy = (config) => {
         explanationPopup: manifest.explanationPopup || ".pop.solution",
     };
 
+    const getWidthClassFromAnswer = (answerLatex) => {
+        const cleanAns = String(answerLatex || "")
+            // 수식 delimiter 제거
+            .replace(/\\\(|\\\)|\\\[|\\\]/g, "")
+            // \left \right 제거
+            .replace(/\\left|\\right/g, "")
+            // \frac 처리: 분자/분모 중 긴 쪽 기준
+            .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, (m, a, b) => {
+                return a.length >= b.length ? a : b;
+            })
+            // \sqrt 처리
+            .replace(/\\sqrt(\{[^{}]*\}|.)/g, (m, a) => {
+                return a ? a.replace(/[{}]/g, "") : "";
+            })
+            // 위첨자/아래첨자 처리
+            .replace(/\^\{([^{}]*)\}/g, "$1")
+            .replace(/_\{([^{}]*)\}/g, "$1")
+            .replace(/\^./g, "")
+            .replace(/_./g, "")
+            // 곱셈 기호 치환
+            .replace(/\\cdot|\\times/g, "*")
+            // 기타 기호 제거
+            .replace(/\\circ/g, "")
+            // 남은 LaTeX 명령 제거
+            .replace(/\\[a-zA-Z]+/g, "")
+            // 공백 제거
+            .replace(/\s+/g, "")
+            .trim();
+
+        const len = cleanAns.length;
+
+        if (len <= 4) return "w200";
+        if (len <= 6) return "w250";
+        if (len <= 9) return "w300";
+        if (len <= 13) return "w400";
+        if (len <= 16) return "w500";
+        return "w600";
+    };
+
     return {
         typeKey,
 
@@ -26,8 +64,8 @@ const createInputStrategy = (config) => {
                 headerUrl: options.headerUrl,
                 contentImageUrl: options.hasImage ? (options.contentImageUrl || null) : null,
                 inputKind: options.inputKind || "math", // 'math' | 'text' | 'ocr'
-                figureBounds: options.figureBounds, // [NEW] Bounds for cropping
-                figureAlt: options.figureAlt // [NEW] Descriptive alt text
+                figureBounds: options.figureBounds,
+                figureAlt: options.figureAlt
             };
         },
 
@@ -35,6 +73,7 @@ const createInputStrategy = (config) => {
             const qs = raw?.subQuestions || raw?.questions || [];
             return {
                 header: raw?.header,
+                title: raw?.title || "", // [추가] 타이틀 필드 보존
                 guideText: raw?.guideText ?? "",
                 mainQuestion: raw?.mainQuestion ?? raw?.questionText ?? "",
                 questions: qs.map((q) => ({
@@ -52,6 +91,17 @@ const createInputStrategy = (config) => {
             // 1. Common Headers
             injectQuestionBase({ doc, data, manifest: _manifest || manifest });
 
+            // 1-1. Inline style injection for math input rendering
+            if (!doc.getElementById("input-v1-inline-style")) {
+                const style = doc.createElement("style");
+                style.id = "input-v1-inline-style";
+                style.textContent = `
+                    mjx-container, math { margin-top: 10px; }
+                    .inp-wrap p, .inp-wrap2 p { margin-top: -5px; }
+                `;
+                (doc.head || doc.body || doc.documentElement).appendChild(style);
+            }
+
             // 2. Loop Items
             const rowTemplate = doc.querySelector(SEL.rowTemplate);
             if (!rowTemplate) {
@@ -61,10 +111,10 @@ const createInputStrategy = (config) => {
             const parent = rowTemplate.parentNode;
 
             // Clear existing rows
-            const existingRows = Array.from(parent.querySelectorAll(SEL.rowTemplate)).filter(r =>
+            const existingRows = Array.from(parent.querySelectorAll(SEL.rowTemplate)).filter((r) =>
                 r.querySelector(SEL.label) || r.querySelector(SEL.passage)
             );
-            existingRows.forEach(r => r.remove());
+            existingRows.forEach((r) => r.remove());
 
             // Rebuild rows from data
             (data.questions || []).forEach((q, i) => {
@@ -79,31 +129,32 @@ const createInputStrategy = (config) => {
 
                 if (p) {
                     p.innerHTML = sanitizeLaTeX(q.promptLatex);
-                    // Note: Content Image is handled by zipProcessor globally or per-page via skeleton modification
                 }
 
                 if (inp) {
-                    // Note: Input Styling is handled by zipProcessor via skeleton modification
+                    const widthClass = getWidthClassFromAnswer(q.answerLatex);
+                    inp.className = `${widthClass} ml10 mr10`;
 
-                    // [추가] QuizInput ID 부여 및 aria-label 부여
-                    const quizP = inp.querySelector("p[id^='QuizInput']");
+                    const quizP = inp.querySelector("p[id^='QuizInput'], p");
                     if (quizP) {
                         quizP.id = `QuizInput${i + 1}`;
-                        quizP.className = `QuizInput${i + 1}`; // [추가] 클래스도 ID와 동일하게 부여
+                        quizP.className = `QuizInput${i + 1}`;
+                        quizP.setAttribute("data-no_idx", String(i + 1));
+                        quizP.setAttribute("data-class_idx", "1");
+                        quizP.style.padding = "0px 33px";
                     }
+
                     const btn = inp.querySelector("button");
                     if (btn) {
                         btn.setAttribute("aria-label", `${i + 1}번 정답 입력칸`);
                     }
 
-                    // Correct Answer injection
                     const correctEl = inp.querySelector(".correct");
                     if (correctEl) {
                         correctEl.innerHTML = sanitizeLaTeX(q.answerLatex);
                     }
                 }
 
-                // [추가] 하단 버튼들 (풀기, 다시 하기, 확인) aria-label 처리
                 const btnWrap = newRow.querySelector(".btn-wrap");
                 if (btnWrap) {
                     const solve = btnWrap.querySelector(".btn-solve");
@@ -117,7 +168,7 @@ const createInputStrategy = (config) => {
 
                 if (solveBtn) solveBtn.setAttribute("aria-haspopup", "dialog");
 
-                if (i !== (data.questions.length - 1)) {
+                if (i !== data.questions.length - 1) {
                     newRow.classList.add("mb80");
                     newRow.style.marginBottom = "80px";
                 }
@@ -146,19 +197,38 @@ const createInputStrategy = (config) => {
             const n = questions.length;
             const esc = (s) => String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 
+            const buildAnswerVariants = (latex) => {
+                const value = String(latex || "").trim();
+                if (!value) return [];
+
+                const variants = new Set([value]);
+
+                if (value.includes("\\frac")) {
+                    variants.add(value.replace(/\\frac/g, "\\dfrac"));
+                }
+                if (value.includes("\\dfrac")) {
+                    variants.add(value.replace(/\\dfrac/g, "\\frac"));
+                }
+
+                return Array.from(variants);
+            };
+
             // 1. dapN_array injection
             for (let i = 0; i < n; i++) {
                 const val = questions[i].answerLatex;
                 const varName = `dap${i + 1}_array`;
-                const newCode = `var ${varName} = ["${esc(val)}"];`;
 
+                const variants = buildAnswerVariants(val);
+                const newCode = `var ${varName} = [[${variants.map(v => `"${esc(v)}"`).join(", ")}]];`;
                 if (new RegExp(`var\\s+${varName}\\s*=`).test(out)) {
-                    out = out.replace(new RegExp(`var\\s+${varName}\\s*=\\s*\\[[^\\]]*\\]\\s*;`), newCode);
+                    out = out.replace(
+                        new RegExp(`var\\s+${varName}\\s*=\\s*\\[[^\\]]*\\]\\s*;`),
+                        newCode
+                    );
                 } else {
                     out = out.replace(/(var\s+qArange)/, `${newCode}\n$1`);
                 }
             }
-
             // 2. q_len
             out = out.replace(/var\s+q_len\s*=\s*\d+\s*;/, `var q_len = ${n};`);
 
@@ -173,7 +243,9 @@ const createInputStrategy = (config) => {
                 `var dap_array = [].concat(${concatArgs});`
             );
 
-            out += `\n\n/* 로컬 테스트를 위한 수식 입력 프롬프트 주입 */
+            out += `
+
+/* 로컬 테스트를 위한 수식 입력 프롬프트 주입 */
 (function() {
   if (window._hasCallExpressPatch) return;
   window._hasCallExpressPatch = true;
@@ -182,7 +254,8 @@ const createInputStrategy = (config) => {
     if (typeof isMuto_fn === 'function' && isMuto_fn()) {
       const latex = prompt("LaTeX 수식을 입력하세요:");
       if (latex !== null && typeof ExpRtn_fn === 'function') {
-        ExpRtn_fn({ id: "EXPRESS_0" + idx, latex: latex });
+        const normalizedLatex = latex.replace(/\\\\/g, "\\\\");
+        ExpRtn_fn({ id: "EXPRESS_0" + idx, latex: normalizedLatex });
       }
       return;
     }
@@ -190,7 +263,8 @@ const createInputStrategy = (config) => {
       original_call_EXPRESS(idx);
     }
   };
-})();\n`;
+})();
+`;
 
             return out;
         }

@@ -9,6 +9,7 @@ const mathInputHandler = {
     const qs = raw?.subQuestions || raw?.questions || [];
     return {
       header: raw?.header,
+      title: raw?.title || "", // [추가] 타이틀 필드 보존
       guideText: raw?.guideText ?? "",
       mainQuestion: raw?.mainQuestion ?? raw?.questionText ?? "",
       questions: qs.map((q) => ({
@@ -96,11 +97,11 @@ const mathInputHandler = {
         let widthClass = "w200";
 
         const len = cleanAns.length;
-        if (len <= 4) widthClass = "w150";
-        else if (len <= 6) widthClass = "w250";
-        else if (len <= 9) widthClass = "w300";
-        else if (len <= 13) widthClass = "w400";
-        else if (len <= 16) widthClass = "w500";
+        if (len <= 4) widthClass = "w200";
+        else if (len <= 6) widthClass = "w300";
+        else if (len <= 9) widthClass = "w350";
+        else if (len <= 13) widthClass = "w450";
+        else if (len <= 16) widthClass = "w550";
         else widthClass = "w600";
 
         inp.className = `${widthClass} ml10 mr10`; // 기존 클래스 교체 및 마진 추가
@@ -169,9 +170,27 @@ const mathInputHandler = {
 
     // 1. 개별 정답 배열 (dapX_array) 처리
     for (let i = 0; i < n; i++) {
-      const val = questions[i].answerLatex;
+      const val = questions[i].answerLatex || "";
       const varName = `dap${i + 1}_array`;
-      const newCode = `var ${varName} = ["${esc(val)}"];`;
+
+      // [수정] 중첩 배열 구조를 위한 정답 처리 (\frac <-> \dfrac 상호 치환 포함)
+      const parts = val.split('|').map(s => s.trim()).filter(s => s !== "");
+
+      const result = parts.map(p => {
+        if (p.includes("\\frac") || p.includes("\\dfrac")) {
+          const variants = new Set([p]);
+          if (p.includes("\\frac")) variants.add(p.replace(/\\frac/g, "\\dfrac"));
+          if (p.includes("\\dfrac")) variants.add(p.replace(/\\dfrac/g, "\\frac"));
+
+          const variantArray = Array.from(variants);
+          return variantArray.length > 1 ? variantArray : variantArray[0];
+        }
+        return p;
+      });
+
+      // JSON.stringify가 중첩 배열 및 특수문자 이스케이프를 완벽하게 처리
+      const finalVal = result.length === 1 ? [result[0]] : result;
+      const newCode = `var ${varName} = ${JSON.stringify(finalVal)};`;
 
       // [수정됨] g 플래그 제거 및 값 매칭 정규식 개선 ([^;]* 사용)
       const re = new RegExp(`(?:var|let|const)?\\s*${varName}\\s*=\\s*[^;]*;?`);

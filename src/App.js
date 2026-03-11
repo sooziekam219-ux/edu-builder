@@ -727,7 +727,15 @@ const App = () => {
             else if (isTogether) headerType = "함께 풀기";
             else if (currentData?.type) headerType = currentData.type;
 
-            const hUrl = ASSETS.TITLES[headerType] || ASSETS.TITLES['문제'];
+            // [수정] 타이틀 정보를 확인하여 적절한 이미지(번호 포함)를 우선 선택
+            const titleContent = (currentData?.title || "") + (currentData?.mainQuestion || "");
+            const qMatch = titleContent.match(/문제\s*(\d+)/);
+            const tMatch = titleContent.match(/함께\s*풀기\s*(\d+)/);
+
+            let hUrl = "";
+            if (qMatch) hUrl = `images/tit-question${qMatch[1]}.png`;
+            else if (tMatch) hUrl = `images/tit-together${tMatch[1]}.png`;
+            else hUrl = ASSETS.TITLES[headerType] || ASSETS.TITLES['문제'];
             const cImg = buildPages[activePageIndex]?.image || "";
             const isSelfStudy = headerType === "스스로 풀기";
 
@@ -2405,7 +2413,7 @@ function SubQuestionsEditor({ currentData, onChange }) {
                 </div>
             ))}
 
-            <button
+            {/* <button
                 onClick={() =>
                     onChange({
                         ...currentData,
@@ -2418,7 +2426,7 @@ function SubQuestionsEditor({ currentData, onChange }) {
                 className="w-full py-4 rounded-[2rem] bg-slate-100 hover:bg-slate-200 font-black text-sm text-slate-600"
             >
                 + 소문항 추가
-            </button>
+            </button> */}
         </div>
     );
 }

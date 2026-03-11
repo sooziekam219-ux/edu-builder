@@ -13,9 +13,39 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
         dType === "스스로 풀기" ||
         (dTitle.includes("스스로") && !dTitle.includes("함께"));
 
+    // [FIX] 우선순위: data.header.src > 동적 매칭 > 기본 이미지
+    const explicitSrc = data?.header?.src;
+    let hasDynamicMatch = false;
+
     if ($headerTitle) {
-        $headerTitle.src = isSelfStudy ? "images/tit-self.png" : "images/tit-together1.png";
-        $headerTitle.setAttribute('alt', isSelfStudy ? "스스로 풀기" : "함께 풀기");
+        if (isSelfStudy) {
+            $headerTitle.src = "images/tit-self.png";
+            $headerTitle.setAttribute('alt', "스스로 풀기");
+            doc.title = "스스로 풀기";
+            hasDynamicMatch = true;
+        } else {
+            // 함께 풀기 섹션: 번호 분석 (title + mainQuestion 모두 확인)
+            const fullText = (data.title || "") + (data.mainQuestion || "");
+            const match = fullText.match(/함께\s*풀기\s*(\d+)/) || fullText.match(/문제\s*(\d+)/);
+            if (match) {
+                const num = match[1];
+                $headerTitle.src = `images/tit-together${num}.png`;
+                $headerTitle.setAttribute('alt', `함께 풀기 ${num}`);
+                doc.title = `함께 풀기 ${num}`;
+                hasDynamicMatch = true;
+            }
+        }
+
+        // 개별 설정이 있으면 덮어쓰기
+        if (explicitSrc) {
+            $headerTitle.src = explicitSrc;
+            if (data.header?.alt) $headerTitle.setAttribute('alt', data.header.alt);
+        } else if (!hasDynamicMatch && !isSelfStudy) {
+            // 동적 매칭 실패 시 기본값
+            $headerTitle.src = "images/tit-together1.png";
+            $headerTitle.setAttribute('alt', "함께 풀기");
+            doc.title = "함께 풀기";
+        }
     }
 
 
@@ -44,8 +74,8 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
         $main.prepend($title);
     }
 
-    // AI가 준 타이틀이 너무 짧거나 '함께 풀기' 같은 분류명이면 적절한 문장으로 대체
-    let displayTitle = data.title || "";
+    // [수정] 발문은 mainQuestion(사용자 편집값)을 최우선으로 사용
+    let displayTitle = data.mainQuestion || data.title || "";
     if (!displayTitle || displayTitle === "함께 풀기" || displayTitle === "함께 풀기 + 스스로 풀기") {
         displayTitle = isSelfStudy ? "단계별로 빈칸을 입력해 봅시다." : "빈칸을 눌러 문제의 해결 과정을 알아 봅시다.";
     }
@@ -97,7 +127,7 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
                 parts.forEach(part => {
                     if (part.type === 'text') {
                         const span = doc.createElement('span');
-                        span.className = "math";
+                        span.className = "math math-tex tex2jax_process";
                         span.setAttribute("translate", "no");
                         span.innerHTML = sanitizeLaTeX(part.content);
                         div.appendChild(span);
@@ -131,10 +161,10 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
 
                         const len = cleanAns.length;
                         if (len <= 4) widthClass = "w150";
-                        else if (len <= 6) widthClass = "w250";
-                        else if (len <= 9) widthClass = "w300";
-                        else if (len <= 13) widthClass = "w400";
-                        else if (len <= 16) widthClass = "w500";
+                        else if (len <= 6) widthClass = "w300";
+                        else if (len <= 9) widthClass = "w400";
+                        else if (len <= 13) widthClass = "w500";
+                        else if (len <= 16) widthClass = "w600";
                         else widthClass = "w600";
 
                         // [수정] onclick 제거, ID와 클래스(너비/마진) 적용
@@ -167,7 +197,7 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
                 parts.forEach(part => {
                     if (part.type === 'text') {
                         const span = doc.createElement('span');
-                        span.className = "math fs40";
+                        span.className = "math math-tex mathjax tex2jax_process fs40";
                         span.setAttribute("translate", "no");
                         span.innerHTML = sanitizeLaTeX(part.content);
                         p.appendChild(span);
@@ -205,19 +235,62 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
                         const estimatedWidth = Math.max(60, (cleanAnswer.length * 18) + 30);
 
                         // ✅ Builder 연동 변수 유지, 단 기본 넘버링(blankCount)은 제거
-                        const showLabel = !!part.labelEnabled;
-                        const labelText = part.labelText || ""; // 1, 2, 3, 4 대신 기본값을 빈 문자열로 처리
+                        // const showLabel = !!part.labelEnabled;
+                        // const labelText = part.labelText || ""; // 1, 2, 3, 4 대신 기본값을 빈 문자열로 처리
 
-                        maskWrap.style.position = "relative"; // 라벨 absolute 기준
+                        //                     maskWrap.style.position = "relative"; // 라벨 absolute 기준
 
+                        //                     maskWrap.innerHTML = `
+
+                        //   <button type="button" class="btn-mask h90" style="margin-left:2px; margin-right:2px; width: ${estimatedWidth}px">
+                        //       딱지를 누르면 딱지가 벗겨집니다.
+                        //   </button>
+
+                        //   <span class="math math-tex tex2jax_process mathjax fs40" style="display:none" translate="no">${sanitizeLaTeX(answer)}</span>
+                        //   `;
+                        maskWrap.style.position = "relative";
+                        maskWrap.style.minWidth = `${estimatedWidth}px`;
+
+                        // 수식 폭 추정용 보조 요소 + 실제 표시 요소 분리
                         maskWrap.innerHTML = `
+  <span
+    class="mask-sizer math math-tex tex2jax_process mathjax fs40"
+    style="visibility:hidden; display:inline-block; white-space:nowrap; pointer-events:none;"
+    translate="no"
+  >${sanitizeLaTeX(answer)}</span>
 
-      <button type="button" class="btn-mask h90" style="margin-left:2px; margin-right:2px; width: ${estimatedWidth}px">
-          딱지를 누르면 딱지가 벗겨집니다.
-      </button>
+  <button
+    type="button"
+    class="btn-mask h90"
+    style="
+      position:absolute;
+      left:0;
+      top:50%;
+      transform:translateY(-50%);
+      width:100%;
+      margin-left:0;
+      margin-right:0;
+      z-index:2;
+    "
+  >
+    딱지를 누르면 딱지가 벗겨집니다.
+  </button>
 
-      <span class="math fs40" style="display:none" translate="no">${sanitizeLaTeX(answer)}</span>
-      `;
+  <span
+    class="mask-answer math math-tex tex2jax_process mathjax fs40"
+    style="
+      display:none;
+      position:absolute;
+      left:0;
+      top:50%;
+      transform:translateY(-50%);
+      white-space:nowrap;
+      z-index:1;
+    "
+    translate="no"
+  >${sanitizeLaTeX(answer)}</span>
+`;
+
 
                         p.appendChild(maskWrap);
                     }
