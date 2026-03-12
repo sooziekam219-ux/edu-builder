@@ -14,16 +14,14 @@ export default function createTogetherStrategy(options = {}) {
         // Config for zipProcessor (Image Saving & Injection)
         getSkeletonConfig() {
             return {
-                headerUrl: options.headerUrl, // If we want to replace header
-                contentImageUrl: options.hasImage ? (options.contentImageUrl || null) : null,
-                figureBounds: options.figureBounds,
-                figureAlt: options.figureAlt,
+                headerUrl: options.headerUrl,
+                contentImageUrl: options.contentImageUrl || null,
+                figureBounds: options.figureBounds || options.figure_bounds,
+                figureAlt: options.figureAlt || options.figure_alt,
 
                 // Content Injection Config
-                // together.select doesn't have 'rowTemplate' with 'passage'.
-                // We define a target for the image.
-                imageTargetSelector: "div[translate='no']", // Inject before or inside this?
-                imagePosition: "prepend" // Custom prop for zipProcessor
+                imageTargetSelector: "div[translate='no']",
+                imagePosition: "prepend"
             };
         },
 

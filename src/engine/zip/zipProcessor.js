@@ -127,6 +127,9 @@ export async function processAndDownloadZip({
       } else if (typeKey === TYPE_KEYS.QUESTION_IMAGE) {
         console.log("Images Strategy Selected");
         engine = createImagesStrategy(customConfig);
+      } else if (typeKey === TYPE_KEYS.QUESTION_MATHINPUT) {
+        console.log("MathInput Handler Selected (direct)");
+        engine = ENGINE_BY_TYPEKEY[TYPE_KEYS.QUESTION_MATHINPUT];
       } else {
         // Default to input_v1 (input.custom)
         engine = createInputStrategy(customConfig);
@@ -316,11 +319,18 @@ export async function processAndDownloadZip({
               const w = img.naturalWidth;
               const h = img.naturalHeight;
 
-              // 1000 기준 좌표를 픽셀로 변환
-              const y1 = Math.floor((ymin / 1000) * h);
-              const x1 = Math.floor((xmin / 1000) * w);
-              const y2 = Math.ceil((ymax / 1000) * h);
-              const x2 = Math.ceil((xmax / 1000) * w);
+              // [NEW] 크롭 여유 패딩 추가 (각 방향 2% = 20/1000)
+              const PAD = 20; // 0~1000 스케일에서 2%
+              const padYmin = Math.max(0, ymin - PAD);
+              const padXmin = Math.max(0, xmin - PAD);
+              const padYmax = Math.min(1000, ymax + PAD);
+              const padXmax = Math.min(1000, xmax + PAD);
+
+              // 패딩 적용된 좌표를 픽셀로 변환
+              const y1 = Math.floor((padYmin / 1000) * h);
+              const x1 = Math.floor((padXmin / 1000) * w);
+              const y2 = Math.ceil((padYmax / 1000) * h);
+              const x2 = Math.ceil((padXmax / 1000) * w);
 
               const cropW = Math.max(1, x2 - x1);
               const cropH = Math.max(1, y2 - y1);
@@ -334,6 +344,9 @@ export async function processAndDownloadZip({
               blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
 
               hasImage = true; // 실제 크롭 성공 시에만 이미지 활성화
+
+              // [NEW] 가로/세로 비율 정보 저장 (이미지 클래스 분기용)
+              skeletonConfig.imageOrientation = cropW >= cropH ? "landscape" : "portrait";
             }
           }
 
@@ -380,7 +393,6 @@ export async function processAndDownloadZip({
         }
       }
 
-      // --- DOM Modification ---
       // Header
       if (skeletonConfig.headerUrl) {
         const headerImg = doc.querySelector(".tit img") || doc.querySelector("header img");
@@ -390,14 +402,14 @@ export async function processAndDownloadZip({
         }
       }
 
-      // [UPDATE] stxt Removal if image exists
-      if (skeletonConfig.contentImageUrl) {
+      // [UPDATE] stxt Removal if image exists (question.image, together.select는 자체 처리)
+      if (skeletonConfig.contentImageUrl && typeKey !== TYPE_KEYS.QUESTION_IMAGE && typeKey !== TYPE_KEYS.TOGETHER_SELECT) {
         const stxt = doc.querySelector(".stxt");
         if (stxt) stxt.remove();
       }
 
-      // Content Image Injection
-      if (skeletonConfig.contentImageUrl) {
+      // Content Image Injection (question.image, together.select는 자체 처리)
+      if (skeletonConfig.contentImageUrl && typeKey !== TYPE_KEYS.QUESTION_IMAGE && typeKey !== TYPE_KEYS.TOGETHER_SELECT) {
         const img = doc.createElement("img");
         img.src = skeletonConfig.contentImageUrl;
         if (skeletonConfig.altText) img.alt = skeletonConfig.altText;
@@ -475,6 +487,7 @@ export async function processAndDownloadZip({
         manifest: pageManifest,
         data: normalizedData,
         pageIndex: i,
+        skeletonConfig, // [NEW] 이미지 경로/alt 전달용
       });
 
 

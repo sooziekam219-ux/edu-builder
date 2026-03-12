@@ -9,7 +9,7 @@ import {
     Trash2, Maximize2, Plus, Server, Check, HardDrive, Layout, RefreshCw,
     Type, Info, ListPlus, X, AlertTriangle, Calculator, FileText,
     BookOpen, GripVertical, ChevronRight, MonitorPlay, MessageSquare,
-    Film, Eye, Code, Square, PenTool
+    Film, Eye, Code, Square, PenTool, Crop, MousePointer2
 } from 'lucide-react';
 import { processAndDownloadZip } from "./engine/zip/zipProcessor";
 import { TYPE_KEYS } from "./engine/typeKeys";
@@ -188,6 +188,7 @@ AI는 다음 지침에 따라 \`figure_bounds\`를 [ymin, xmin, ymax, xmax] (0~1
 
 **공통 규칙 (매우 중요):**
 - **정답 및 해설 직접 계산:** 예시 텍스트를 그대로 복사하지 마십시오. 당신은 수학 교사입니다. 이미지의 문제를 **직접 풀이하여 정확한 수학적 정답**을 구하고, 그에 맞는 **구체적인 해설**을 작성하여 JSON 필드에 채워 넣어야 합니다.
+- **[해설(explanation) 작성 절대 규칙 - 매우 중요!]**: 'explanation' 필드에는 오직 학생에게 제공할 **순수 수학적 풀이 과정(Step-by-step)**만 작성해야 합니다. 자신이 왜 이 유형으로 분류했는지에 대한 메타 설명, 레이아웃 분석, 시스템 프롬프트 내용(예: "[정답 설정]", "삽화(Figure)와 발문 조화", "수식 입력창을 통한 풀이 유도" 등)을 절대 포함하지 마십시오. 오직 수식과 논리적 풀이 과정만 담으십시오.
 - 모든 수식은 반드시 '\\\\( ... \\\\)' 형태로 감싸세요. (백슬래시 2개)
 - 유형 안에 삽화나 도형이 있다면 'figure_bounds'([ymin, xmin, ymax, xmax])를 0~1000 좌표계로 추출하세요. 없으면 [0,0,0,0].
 - 이미지에 포함된 "답:", "정답:", "풀이:", "해설:"로 시작하는 텍스트는 교사용 정보이므로 **절대 'body'나 'content'에 포함하지 마라.**
@@ -386,7 +387,7 @@ const parseTextToLines = (text, answers = []) => {
     });
 };
 
-const generateLogicText = (type, subtype, answers) => {
+const generateLogicText = (typeKey, type, subtype, answers) => {
     const hasAnswer = answers && answers.length > 0;
     const answerSection = hasAnswer ? `[정답 설정]\n- 정답: ${answers.join(', ')}\n\n` : '';
 
@@ -411,7 +412,12 @@ const generateLogicText = (type, subtype, answers) => {
         return answerSection + `[활동형]\n1. [저장] 버튼 클릭 시 입력값 저장.\n2. 정오 판별 없음.\n3. 빈칸 시 "내용을 입력하세요" 알럿.`;
     }
 
-    // 5. 일반 문제 (수식 입력형)
+    // 5. 이미지형 문제 (question.image)
+    if (typeKey === TYPE_KEYS.QUESTION_IMAGE) {
+        return answerSection + `[이미지형 문제]\n1. 삽화(Figure)와 발문이 조화된 레이아웃 구성.\n2. 수식 입력창을 통해 정답 입력 및 정오 판별.\n3. 우측/하단 삽화 영역을 반드시 확인하여 문제 풀이 유도.`;
+    }
+
+    // 6. 일반 문제 (수식 입력형)
     return answerSection + `[기능 로직]\n1. 빈칸 클릭 시 수식 입력기 호출.\n2. [확인] 클릭 시 정오답 판별.\n3. 정답 시: 파란색(#0000FF) 변경 + 정답 알럿.\n4. 오답 시: 재도전 알럿 + 오답 붉은색 노출.\n5. 버튼 토글: 확인 -> 풀이/다시하기.`;
 };
 
@@ -490,6 +496,7 @@ const buildDraftInputConfig = ({
                 headerUrl,
                 contentImageUrl,
                 figure_bounds,
+                figureBounds: figure_bounds,
                 figure_alt
             }
         }
@@ -991,14 +998,16 @@ const App = () => {
                 const currentBlankIdx = blankIdx;
                 const answer = answers[currentBlankIdx - 1] || "";
 
+                const isTogetherTarget = isTogether && (typeKey === TYPE_KEYS.TOGETHER_SELECT || typeKey === TYPE_KEYS.TOGETHER_SELF);
+
                 return (
                     <span key={i} className="inline-flex items-center align-middle mx-1 relative">
                         <span
                             className={`inline-flex items-center justify-center rounded-md border-2 transition-all relative ${isSelfStudy
                                 ? 'w-16 h-10 bg-white border-slate-300 shadow-sm'
-                                : isTogether
+                                : isTogetherTarget
                                     ? 'w-10 h-10 bg-[#00bcf1] border-[#00bcf1] shadow-[0_4px_0_0_#0097c3]'
-                                    : 'w-10 h-10 bg-[#00bcf1] border-[#00bcf1]'
+                                    : 'w-10 h-10 bg-white border-slate-300'
                                 }`}
                         >
 
@@ -1259,14 +1268,14 @@ const App = () => {
                                         type: 'blank',
                                         options: finalOptions,
                                         correctIndex: 1,
-                                        labelEnabled: true,
+                                        labelEnabled: false, // [FIX] 기본값 OFF로 원복 (사용자 요청)
                                         isLabelTarget: true,
                                         label: "",
                                         explanation: sq.explanation || ""
                                     });
                                 }
                             });
-                            return { label: sq.label || `(${sqIdx + 1})`, parts: parts, labelEnabled: true, isSelfLine: isThisSecSelf };
+                            return { label: sq.label || `(${sqIdx + 1})`, parts: parts, labelEnabled: false, isSelfLine: isThisSecSelf };
                         });
                     }
 
@@ -1299,7 +1308,7 @@ const App = () => {
                                 content: finalInstruction, guide: guide,
                                 body: chunk.map(q => q.passage).join('\n'),
                                 answers: chunk.flatMap(q => Array.isArray(q.answer) ? q.answer : [q.answer]),
-                                description: [{ text: generateLogicText(type, sec.subtype, chunk.flatMap(q => Array.isArray(q.answer) ? q.answer : [q.answer])) }],
+                                description: [{ text: generateLogicText(detectedTypeKey, type, sec.subtype, chunk.flatMap(q => Array.isArray(q.answer) ? q.answer : [q.answer])) }],
                                 subQuestions: chunk, lines: chunkLines,
                                 isSelfStudy: isThisSecSelf, // [NEW]
                                 figure_bounds: sec.figure_bounds || [0, 0, 0, 0],
@@ -1314,7 +1323,7 @@ const App = () => {
                             title, mainQuestion: title,
                             content: finalInstruction, guide: guide,
                             body: body, answers: finalAnswers,
-                            description: [{ text: generateLogicText(type, sec.subtype, finalAnswers) }],
+                            description: [{ text: generateLogicText(detectedTypeKey, type, sec.subtype, finalAnswers) }],
                             subQuestions: finalSubQs, lines: finalLines,
                             isSelfStudy: isThisSecSelf, // [NEW]
                             figure_bounds: sec.figure_bounds || [0, 0, 0, 0],
@@ -1584,7 +1593,7 @@ const App = () => {
                         { id: 'analysis', icon: BookOpen, label: '교과서 분석' },
                         { id: 'storyboard', icon: Layers, label: '스토리보드' },
                         { id: 'builder', icon: Calculator, label: '콘텐츠 생성' },
-                        { id: 'library', icon: HardDrive, label: '라이브러리' }
+                        // { id: 'library', icon: HardDrive, label: '라이브러리' }
                     ].map(item => (
                         <button
                             key={item.id}
@@ -1757,7 +1766,7 @@ const App = () => {
                                                 }}
                                                 className="p-3 bg-white/90 backdrop-blur-md text-amber-500 rounded-full hover:bg-amber-50 transition-colors shadow-sm"
                                             >
-                                                <checkCircle2 size={20} /> ★
+                                                <CheckCircle2 size={20} /> ★
                                             </button>
                                             <button onClick={() => setAnalysisImages(prev => prev.filter(i => i.id !== img.id))} className="p-3 bg-white/90 backdrop-blur-md text-rose-500 rounded-full hover:bg-rose-50 transition-colors shadow-sm"><Trash2 size={20} /></button>
                                         </div>
@@ -1840,88 +1849,32 @@ const App = () => {
                                                     </h5>
 
                                                     <div className="space-y-6 mt-8 pl-2 border-l-2 border-slate-100">
-                                                        {/* [NEW] 통합 삽화 및 크롭 에디터 영역 (페이지 레벨로 이동) */}
-                                                        {page.contentImageUrl && (page.typeKey === 'question.image' || page.type === '이미지형' || (page.figure_bounds && page.figure_bounds.some(v => v !== 0))) && (
+                                                        {/* --- 스토리보드 탭: 이미지 영역 (읽기 전용) --- */}
+                                                        {page.contentImageUrl && (page.typeKey === 'question.image' || page.type?.includes('이미지') || (page.figure_bounds && page.figure_bounds.some(v => v !== 0))) && (
                                                             <div className="mb-10 space-y-4 pr-6">
-                                                                <div
-                                                                    className="relative rounded-[2.5rem] overflow-hidden border-4 border-rose-100 shadow-2xl bg-slate-50 aspect-video lg:aspect-[16/7] group/fig cursor-crosshair"
-                                                                    onMouseDown={(e) => {
-                                                                        const rect = e.currentTarget.getBoundingClientRect();
-                                                                        const x = ((e.clientX - rect.left) / rect.width) * 1000;
-                                                                        const y = ((e.clientY - rect.top) / rect.height) * 1000;
 
-                                                                        const updateBounds = (moveEvent) => {
-                                                                            const moveRect = e.currentTarget.getBoundingClientRect();
-                                                                            const moveX = ((moveEvent.clientX - moveRect.left) / moveRect.width) * 1000;
-                                                                            const moveY = ((moveEvent.clientY - moveRect.top) / moveRect.height) * 1000;
-
-                                                                            const newBounds = [
-                                                                                Math.max(0, Math.min(y, moveY)),
-                                                                                Math.max(0, Math.min(x, moveX)),
-                                                                                Math.min(1000, Math.max(y, moveY)),
-                                                                                Math.min(1000, Math.max(x, moveX))
-                                                                            ];
-
-                                                                            const newPages = [...pages];
-                                                                            newPages[pIdx] = { ...newPages[pIdx], figure_bounds: newBounds };
-                                                                            setPages(newPages);
-                                                                        };
-
-                                                                        const stopUpdate = () => {
-                                                                            window.removeEventListener('mousemove', updateBounds);
-                                                                            window.removeEventListener('mouseup', stopUpdate);
-                                                                        };
-
-                                                                        window.addEventListener('mousemove', updateBounds);
-                                                                        window.addEventListener('mouseup', stopUpdate);
-                                                                    }}
-                                                                >
-                                                                    <img src={page.contentImageUrl} className="w-full h-full object-contain pointer-events-none select-none" alt="Original" />
-                                                                    {page.figure_bounds && page.figure_bounds.some(v => v !== 0) && (
-                                                                        <div
-                                                                            className="absolute border-4 border-rose-500 bg-rose-500/20 shadow-[0_0_20px_rgba(244,63,94,0.4)] transition-all duration-75"
-                                                                            style={{
-                                                                                top: `${page.figure_bounds[0] / 10}%`,
-                                                                                left: `${page.figure_bounds[1] / 10}%`,
-                                                                                width: `${(page.figure_bounds[3] - page.figure_bounds[1]) / 10}%`,
-                                                                                height: `${(page.figure_bounds[2] - page.figure_bounds[0]) / 10}%`,
-                                                                            }}
-                                                                        >
-                                                                            <div className="absolute -top-7 left-0 bg-rose-500 text-white text-[10px] font-black px-2 py-1 rounded flex items-center gap-1 shadow-lg">
-                                                                                <Crop size={10} /> CROP AREA
-                                                                            </div>
-                                                                            <button
-                                                                                className="absolute -top-3 -right-3 w-6 h-6 bg-rose-600 text-white rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform"
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    const newPages = [...pages];
-                                                                                    newPages[pIdx] = { ...newPages[pIdx], figure_bounds: [0, 0, 0, 0] };
-                                                                                    setPages(newPages);
-                                                                                }}
-                                                                            >
-                                                                                ×
-                                                                            </button>
-                                                                        </div>
-                                                                    )}
-                                                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/fig:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-                                                                        <span className="text-white font-bold text-sm bg-black/50 px-4 py-2 rounded-full backdrop-blur-sm shadow-xl flex items-center gap-2">
-                                                                            <MousePointer2 size={16} /> 드래그하여 삽화 영역 지정
+                                                                {page.figure_bounds && page.figure_bounds.some(v => v !== 0) ? (
+                                                                    <div className="flex flex-col items-center">
+                                                                        <span className="bg-rose-50 text-rose-500 text-[10px] font-black px-3 py-1 rounded-full mb-2 border border-rose-100">
+                                                                            ✨ AI 추출 삽화
                                                                         </span>
+                                                                        <CroppedImagePreview bounds={page.figure_bounds} imageUrl={page.contentImageUrl} />
                                                                     </div>
-                                                                </div>
-                                                                {(page.typeKey === 'question.image' || page.type === '이미지형') && (
-                                                                    <div className="p-6 bg-emerald-50 rounded-[2rem] border border-emerald-100 flex items-center justify-between">
-                                                                        <div>
-                                                                            <div className="text-[10px] font-black text-emerald-500 mb-1 uppercase tracking-widest">Expected Answer</div>
-                                                                            <div className="text-xl font-black text-emerald-700">
-                                                                                {renderMathToHTML(Array.isArray(page.answers) ? page.answers[0] : page.answers, page.typeKey, page.title)}
-                                                                            </div>
-                                                                        </div>
-                                                                        <div className="w-16 h-10 border border-slate-300 rounded-lg flex items-center justify-center bg-white shrink-0">
-                                                                            <img src="https://i.imgur.com/5LhWfL3.png" className="w-5 h-5 object-contain opacity-50" />
+                                                                ) : (
+                                                                    < div className="relative rounded-[2.5rem] border-4 border-slate-100 shadow-sm bg-slate-50 flex justify-center py-4">
+                                                                        <img
+                                                                            src={page.contentImageUrl}
+                                                                            className="max-h-[300px] w-auto object-contain pointer-events-none select-none rounded-lg opacity-50"
+                                                                            alt="Original Fallback"
+                                                                        />
+                                                                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                                                            <span className="bg-slate-800 text-white text-xs font-bold px-4 py-2 rounded-full shadow-lg">
+                                                                                AI가 삽화 영역을 찾지 못했습니다. 빌더 탭에서 지정해주세요.
+                                                                            </span>
                                                                         </div>
                                                                     </div>
                                                                 )}
+
                                                             </div>
                                                         )}
 
@@ -2076,7 +2029,12 @@ const App = () => {
                                                             guideText: page.guide,
                                                             subQuestions: page.subQuestions || [],
                                                             lines: page.lines || [],
-                                                            answers: page.answers || [] // [FIX] Ensure answers are mapped for preview
+                                                            answers: page.answers || [], // [FIX] Ensure answers are mapped for preview
+                                                            // [NEW] question.image 에디터용 단수형 필드 매핑
+                                                            answer: Array.isArray(page.answers) ? (page.answers[0] || "") : (page.answers || ""),
+                                                            explanation: Array.isArray(page.explanation) ? (page.explanation[0] || "") : (page.explanation || page.description?.[0]?.text || ""),
+                                                            figure_bounds: page.figure_bounds || [0, 0, 0, 0],
+                                                            figure_alt: page.figure_alt || "",
                                                         };
 
                                                         // For together types, parse body into lines/parts automatically
@@ -2302,6 +2260,10 @@ const App = () => {
                                                                     <p className="text-xs text-slate-400 font-medium leading-relaxed">
                                                                         {renderMathToHTML(activeData.guideText, activeData.typeKey, activeData.title)}
                                                                     </p>
+                                                                    {/* [추가] 여기에 크롭된 결과물 미리보기 주입 */}
+                                                                    <CroppedImagePreview bounds={activeData.figure_bounds} imageUrl={buildPages[activePageIndex]?.image} />
+
+                                                                    <div className="space-y-4 pt-4 border-t border-slate-100"></div>
                                                                     <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
                                                                         {(activeData.subQuestions || []).slice(0, 4).map((sq, i) => (
                                                                             <div key={i} className="flex gap-2 items-start opacity-60">
@@ -2368,54 +2330,98 @@ const App = () => {
                                     </details> */}
 
                                     {buildPages[activePageIndex]?.image && (
-                                        <div
-                                            className="bg-white mt-2 p-4 rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col gap-3 cursor-zoom-in hover:border-indigo-200 transition-all group scale-100 hover:scale-[1.02] active:scale-95"
-                                            onClick={() => setZoomedImage(buildPages[activePageIndex].image)}
-                                        >
+                                        <div className="bg-white mt-2 p-4 rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col gap-3 transition-all group">
                                             <div className="flex items-center justify-between px-2">
                                                 <div className="flex items-center gap-2 text-slate-400">
-                                                    <ImageIcon size={14} />
-                                                    <span className="text-[10px] font-black uppercase tracking-wider">교과서 이미지</span>
+                                                    <Crop size={14} />
+                                                    <span className="text-[10px] font-black uppercase tracking-wider">삽화 영역 편집 (크롭)</span>
                                                 </div>
                                                 <div className="flex items-center gap-4">
-                                                    {activeData?.figure_bounds && activeData?.figure_bounds.some(v => v !== 0) && (
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); setShowDetectionOverlay(!showDetectionOverlay); }}
-                                                            className={`px-3 py-1 rounded-full text-[9px] font-black transition-all border ${showDetectionOverlay ? 'bg-rose-500 text-white border-rose-400 shadow-md' : 'bg-slate-100 text-slate-400 border-slate-200'}`}
-                                                        >
-                                                            {showDetectionOverlay ? '영역 숨기기' : 'AI 탐지 영역 확인'}
-                                                        </button>
-                                                    )}
-                                                    <div className="text-[10px] font-bold text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity">Click to zoom</div>
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); setZoomedImage(buildPages[activePageIndex].image); }}
+                                                        className="px-3 py-1 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-[10px] font-black flex items-center gap-1 transition-colors"
+                                                    >
+                                                        <Maximize2 size={10} /> 확대보기
+                                                    </button>
+                                                    <div className="text-[10px] font-bold text-indigo-500 animate-pulse">마우스로 드래그하여 영역 설정</div>
                                                 </div>
                                             </div>
-                                            <div className="bg-slate-50 rounded-[1.5rem] overflow-hidden aspect-video border border-slate-100/50 relative">
-                                                <img
-                                                    src={buildPages[activePageIndex].image}
-                                                    className="w-full h-full object-contain"
-                                                    alt="Source"
-                                                />
-                                                {/* AI Detection Overlay */}
-                                                {showDetectionOverlay && activeData?.figure_bounds && (
-                                                    <div
-                                                        style={{
-                                                            position: 'absolute',
-                                                            top: `${activeData.figure_bounds[0] / 10}%`,
-                                                            left: `${activeData.figure_bounds[1] / 10}%`,
-                                                            width: `${(activeData.figure_bounds[3] - activeData.figure_bounds[1]) / 10}%`,
-                                                            height: `${(activeData.figure_bounds[2] - activeData.figure_bounds[0]) / 10}%`,
-                                                            border: '3px solid #f43f5e',
-                                                            backgroundColor: 'rgba(244, 63, 94, 0.2)',
-                                                            pointerEvents: 'none',
-                                                            boxShadow: '0 0 20px rgba(244, 63, 94, 0.4)',
-                                                            zIndex: 20
-                                                        }}
-                                                    >
-                                                        <span className="absolute -top-7 left-0 bg-rose-500 text-white text-[9px] font-black px-2 py-1 rounded shadow-md whitespace-nowrap">
-                                                            AI DETECTED FIGURE
-                                                        </span>
-                                                    </div>
-                                                )}
+                                            {/* 겉 포장지 */}
+                                            <div className="bg-slate-50 rounded-[1.5rem] border border-slate-100/50 flex justify-center py-4">
+                                                {/* 알맹이 */}
+                                                <div
+                                                    className="relative cursor-crosshair group/fig shadow-sm"
+                                                    style={{ display: 'inline-block', lineHeight: 0 }}
+                                                    onMouseDown={(e) => {
+                                                        const target = e.currentTarget;
+                                                        const rect = target.getBoundingClientRect();
+                                                        const x = ((e.clientX - rect.left) / rect.width) * 1000;
+                                                        const y = ((e.clientY - rect.top) / rect.height) * 1000;
+
+                                                        const updateBounds = (moveEvent) => {
+                                                            const moveRect = target.getBoundingClientRect();
+                                                            const moveX = Math.max(0, Math.min(1000, ((moveEvent.clientX - moveRect.left) / moveRect.width) * 1000));
+                                                            const moveY = Math.max(0, Math.min(1000, ((moveEvent.clientY - moveRect.top) / moveRect.height) * 1000));
+
+                                                            const newBounds = [
+                                                                Math.max(0, Math.min(y, moveY)),
+                                                                Math.max(0, Math.min(x, moveX)),
+                                                                Math.min(1000, Math.max(y, moveY)),
+                                                                Math.min(1000, Math.max(x, moveX))
+                                                            ];
+
+                                                            const newPages = [...buildPages];
+                                                            newPages[activePageIndex].data = {
+                                                                ...newPages[activePageIndex].data,
+                                                                figure_bounds: newBounds
+                                                            };
+                                                            setBuildPages(newPages);
+                                                        };
+
+                                                        const stopUpdate = () => {
+                                                            window.removeEventListener('mousemove', updateBounds);
+                                                            window.removeEventListener('mouseup', stopUpdate);
+                                                        };
+
+                                                        window.addEventListener('mousemove', updateBounds);
+                                                        window.addEventListener('mouseup', stopUpdate);
+                                                    }}
+                                                >
+                                                    <img
+                                                        src={buildPages[activePageIndex].image}
+                                                        className="w-full h-full object-contain pointer-events-none select-none"
+                                                        alt="Source"
+                                                    />
+                                                    {activeData?.figure_bounds && activeData.figure_bounds.some(v => v !== 0) && (
+                                                        <div
+                                                            className="absolute border-2 border-rose-500 bg-rose-500/20 shadow-[0_0_20px_rgba(244,63,94,0.4)] transition-all duration-75"
+                                                            style={{
+                                                                top: `${activeData.figure_bounds[0] / 10}%`,
+                                                                left: `${activeData.figure_bounds[1] / 10}%`,
+                                                                width: `${(activeData.figure_bounds[3] - activeData.figure_bounds[1]) / 10}%`,
+                                                                height: `${(activeData.figure_bounds[2] - activeData.figure_bounds[0]) / 10}%`,
+                                                            }}
+                                                        >
+                                                            <div className="absolute -top-6 left-0 bg-rose-500 text-white text-[9px] font-black px-2 py-1 rounded shadow-md whitespace-nowrap">
+                                                                CROP AREA
+                                                            </div>
+                                                            <button
+                                                                className="absolute -top-3 -right-3 w-6 h-6 bg-rose-600 text-white rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform text-xs"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    const newPages = [...buildPages];
+                                                                    newPages[activePageIndex].data = {
+                                                                        ...newPages[activePageIndex].data,
+                                                                        figure_bounds: [0, 0, 0, 0]
+                                                                    };
+                                                                    setBuildPages(newPages);
+                                                                }}
+                                                            >
+                                                                ×
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
                                     )}
@@ -2513,7 +2519,7 @@ const App = () => {
                         </div>
                     )}
                 </div>
-            </main>
+            </main >
 
             <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
@@ -2523,9 +2529,60 @@ const App = () => {
         @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .animate-in { animation: fade-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
       `}</style>
-        </div>
+        </div >
     );
 };
+
+// --- App.js 맨 아래쪽 컴포넌트 선언부 ---
+
+function CroppedImagePreview({ bounds, imageUrl }) {
+    if (!bounds || !bounds.some(v => v !== 0) || !imageUrl) return null;
+    const [ymin, xmin, ymax, xmax] = bounds;
+    const cropWidth = xmax - xmin;
+    const cropHeight = ymax - ymin;
+    if (cropWidth <= 0 || cropHeight <= 0) return null;
+
+    // 투명한 SVG를 이용해 컨테이너의 비율과 최대 크기를 완벽하게 잡아줍니다.
+    const svgString = `<svg xmlns="http://www.w3.org/2000/svg" width="${cropWidth}" height="${cropHeight}"></svg>`;
+    const dummySvg = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgString)}`;
+
+    return (
+        <div className="my-5 border-2 border-slate-200 rounded-[1.5rem] shadow-inner mx-auto bg-slate-100 pointer-events-none flex items-center justify-center p-2 h-[260px] w-4/5 overflow-hidden">
+            <div style={{
+                position: 'relative',
+                maxHeight: '100%',
+                maxWidth: '100%',
+                borderRadius: '1rem',
+                overflow: 'hidden',
+                backgroundColor: '#fff',
+                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                display: 'flex'
+            }}>
+                {/* 1. 안 보이는 스페이서가 260px 안에서 비율을 유지하며 공간을 확보함 */}
+                <img
+                    src={dummySvg}
+                    style={{ display: 'block', maxWidth: '100%', maxHeight: '240px', opacity: 0 }}
+                    alt="spacer"
+                />
+
+                {/* 2. 확보된 공간 위에 크롭된 이미지를 정확한 비율로 얹음 */}
+                <img
+                    src={imageUrl}
+                    style={{
+                        position: 'absolute',
+                        top: `-${(ymin / cropHeight) * 100}%`,
+                        left: `-${(xmin / cropWidth) * 100}%`,
+                        width: `${(1000 / cropWidth) * 100}%`,
+                        height: `${(1000 / cropHeight) * 100}%`,
+                        maxWidth: 'none',
+                        maxHeight: 'none'
+                    }}
+                    alt="Cropped Preview"
+                />
+            </div>
+        </div>
+    );
+}
 
 export default App;
 
@@ -2950,6 +3007,26 @@ function QuestionImageEditor({ currentData, onChange }) {
                 <div>
                     <div className="text-xs font-black uppercase tracking-widest text-emerald-600 mb-4">이미지형 문제 설정</div>
                     <div className="space-y-6">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-xs font-bold text-slate-400 uppercase mb-2 block tracking-widest ml-1">입력칸 앞 텍스트 (Prefix)</label>
+                                <input
+                                    className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-4 ring-emerald-500/10 transition-all"
+                                    value={currentData.prefixText || ""}
+                                    onChange={(e) => handleUpdate("prefixText", e.target.value)}
+                                    placeholder='예: 넓이 = '
+                                />
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-400 uppercase mb-2 block tracking-widest ml-1">입력칸 뒤 텍스트 (Suffix)</label>
+                                <input
+                                    className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-4 ring-emerald-500/10 transition-all"
+                                    value={currentData.suffixText || ""}
+                                    onChange={(e) => handleUpdate("suffixText", e.target.value)}
+                                    placeholder='예: cm²'
+                                />
+                            </div>
+                        </div>
                         <div>
                             <label className="text-xs font-bold text-slate-400 uppercase mb-2 block tracking-widest ml-1">정답 (Answer)</label>
                             <input

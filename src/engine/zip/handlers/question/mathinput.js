@@ -26,10 +26,10 @@ const mathInputHandler = {
   },
 
   getSkeletonConfig(data) {
-    // [FIX] Use keys normalized by the same handler
+    // [FIX] mathinput은 삽화 불필요 (question.image가 담당)
+    // contentImageUrl을 반환하면 zipProcessor가 DOM을 수정하여
+    // .flex-row.ai-s.jc-sb 클래스가 제거되고 injectHtmlPage가 스킵됨
     return {
-      hasImage: !!(data?.figure_bounds && data.figure_bounds.some(v => v !== 0)),
-      contentImageUrl: data?.contentImageUrl || null,
       figureBounds: data?.figure_bounds || [0, 0, 0, 0],
       figureAlt: data?.figure_alt || "문제 이미지"
     };
@@ -99,9 +99,9 @@ const mathInputHandler = {
         const len = cleanAns.length;
         if (len <= 4) widthClass = "w200";
         else if (len <= 6) widthClass = "w300";
-        else if (len <= 9) widthClass = "w350";
-        else if (len <= 13) widthClass = "w450";
-        else if (len <= 16) widthClass = "w550";
+        else if (len <= 9) widthClass = "w300";
+        else if (len <= 13) widthClass = "w400";
+        else if (len <= 16) widthClass = "w500";
         else widthClass = "w600";
 
         inp.className = `${widthClass} ml10 mr10`; // 기존 클래스 교체 및 마진 추가
@@ -110,7 +110,17 @@ const mathInputHandler = {
         const quizP = inp.querySelector("p[id^='QuizInput']");
         if (quizP) {
           quizP.id = `QuizInput${i + 1}`;
-          quizP.className = `QuizInput${i + 1}`; // [추가] 클래스도 ID와 동일하게 부여
+          quizP.className = `QuizInput${i + 1}`;
+          quizP.setAttribute("data-no_idx", String(i + 1));
+          quizP.setAttribute("data-class_idx", "1");
+          quizP.style.padding = "0px 33px";
+        }
+
+        // [추가] 오답 시 정답 표시용 .correct 요소 업데이트 (newRow 레벨에서 검색)
+        const correctEl = newRow.querySelector(".correct");
+        if (correctEl) {
+          const ansStr = Array.isArray(q.answerLatex) ? q.answerLatex.join(', ') : (q.answerLatex || "");
+          correctEl.innerHTML = sanitizeLaTeX(ansStr);
         }
 
         // 버튼을 찾아서 aria-label 부여 (.btn-solve 또는 .btn-math)
@@ -170,7 +180,9 @@ const mathInputHandler = {
 
     // 1. 개별 정답 배열 (dapX_array) 처리
     for (let i = 0; i < n; i++) {
-      const val = questions[i].answerLatex || "";
+      // [FIX] \( \) 및 \[ \] 구분자 제거 후 사용
+      const rawVal = String(questions[i].answerLatex ?? "");
+      const val = rawVal.replace(/^\\\(|\\\)$/g, '').replace(/^\\\[|\\\]$/g, '').trim();
       const varName = `dap${i + 1}_array`;
 
       // [수정] 중첩 배열 구조를 위한 정답 처리 (\frac <-> \dfrac 상호 치환 포함)

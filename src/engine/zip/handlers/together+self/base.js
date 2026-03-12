@@ -171,10 +171,10 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
 
                             const len = cleanAns.length;
                             if (len <= 4) widthClass = "w150";
-                            else if (len <= 6) widthClass = "w300";
-                            else if (len <= 9) widthClass = "w400";
-                            else if (len <= 13) widthClass = "w500";
-                            else if (len <= 16) widthClass = "w600";
+                            else if (len <= 6) widthClass = "w250";
+                            else if (len <= 9) widthClass = "w350";
+                            else if (len <= 13) widthClass = "w400";
+                            else if (len <= 16) widthClass = "w500";
                             else widthClass = "w600";
 
                             // [수정] onclick 제거, ID와 클래스(너비/마진) 적용
