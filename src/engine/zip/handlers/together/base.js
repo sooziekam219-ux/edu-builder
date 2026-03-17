@@ -92,7 +92,8 @@ export function injectTogetherBase({ doc, data, manifest, skeletonConfig }) {
   //   텍스트(75%) : 삽화(25%)  |  삽화 없으면 원래 구조 유지
   // ----------------------------------------------------------------
   const imageUrl = skeletonConfig?.contentImageUrl;
-  if (imageUrl) {
+  // [FIX] 로컬 이미지 경로일 때만 삽화가 있는 것으로 간주 (원격 URL은 무시)
+  if (imageUrl && imageUrl.startsWith("./images/")) {
     // 1. zipProcessor가 넣은 잔여 이미지 제거
     const junkImg = doc.querySelector("img.illustration-img");
     if (junkImg) junkImg.remove();

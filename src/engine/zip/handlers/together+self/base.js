@@ -1,6 +1,6 @@
 
 import { sanitizeLaTeX } from "../../../utils/sanitize";
-export const injectTogetherSelfBase = ({ doc, data }) => {
+export const injectTogetherSelfBase = ({ doc, data, skeletonConfig }) => {
     // 1. Detect View Type (Together vs Self)
     const $headerTitle = doc.querySelector('header img');
     const altText = $headerTitle?.getAttribute('alt') || "";
@@ -98,6 +98,46 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
     });
 
     // 4. Inject Content Lines
+    // [NEW] 삽화가 있으면 flex 2컬럼 구조 도입
+    const imageUrl = skeletonConfig?.contentImageUrl;
+    let $injectionTarget = $main;
+
+    if (imageUrl && imageUrl.startsWith("./images/")) {
+        // 1. zipProcessor가 넣은 잔여 이미지 제거
+        const junkImg = doc.querySelector("img.illustration-img");
+        if (junkImg) junkImg.remove();
+
+        // 2. flex wrapper 생성 (겹침 방지)
+        const flexWrapper = doc.createElement("div");
+        flexWrapper.className = "illust-flex-wrapper";
+        flexWrapper.style.cssText = "display:flex; gap:20px; align-items:flex-start; margin-top:20px;";
+
+        const contentCol = doc.createElement("div");
+        contentCol.className = "content-col";
+        contentCol.style.flex = "3"; // 75%
+
+        const imgCol = doc.createElement("div");
+        imgCol.className = "image-col";
+        imgCol.style.cssText = "flex:1; flex-shrink:0; display:flex; align-items:flex-start; justify-content:center;";
+
+        const imgEl = doc.createElement("img");
+        imgEl.src = imageUrl;
+        imgEl.alt = skeletonConfig?.altText || "삽화";
+        imgEl.style.cssText = "width:100%; height:auto; border-radius:8px;";
+        imgCol.appendChild(imgEl);
+
+        flexWrapper.appendChild(contentCol);
+        flexWrapper.appendChild(imgCol);
+
+        // [FIX] 버튼 영역(.btn-wrap) 앞에 flex wrapper 삽입
+        const $btnWrap = $main.querySelector('.btn-wrap');
+        if ($btnWrap) $main.insertBefore(flexWrapper, $btnWrap);
+        else $main.appendChild(flexWrapper);
+
+        // 이후의 모든 콘텐츠는 contentCol에 주입
+        $injectionTarget = contentCol;
+    }
+
     let blankCount = 0;
 
     if (Array.isArray(data.lines)) {
@@ -195,9 +235,14 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
                     }
                 });
 
-                const $btnWrap = $main.querySelector('.btn-wrap');
-                if ($btnWrap) $main.insertBefore(div, $btnWrap);
-                else $main.appendChild(div);
+                // [FIX] $injectionTarget이 main이면 버튼 앞에, 아니면(콘텐츠컬럼) 마지막에 추가
+                if ($injectionTarget === $main) {
+                    const $btnWrap = $main.querySelector('.btn-wrap');
+                    if ($btnWrap) $injectionTarget.insertBefore(div, $btnWrap);
+                    else $injectionTarget.appendChild(div);
+                } else {
+                    $injectionTarget.appendChild(div);
+                }
 
             } else {
                 // [Together Study Style] <p class="fs40 mb50">
@@ -318,9 +363,14 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
                     }
                 });
 
-                const $btnWrap = $main.querySelector('.btn-wrap');
-                if ($btnWrap) $main.insertBefore(p, $btnWrap);
-                else $main.appendChild(p);
+                // [FIX] $injectionTarget이 main이면 버튼 앞에, 아니면(콘텐츠컬럼) 마지막에 추가
+                if ($injectionTarget === $main) {
+                    const $btnWrap = $main.querySelector('.btn-wrap');
+                    if ($btnWrap) $injectionTarget.insertBefore(p, $btnWrap);
+                    else $injectionTarget.appendChild(p);
+                } else {
+                    $injectionTarget.appendChild(p);
+                }
             }
         });
     }

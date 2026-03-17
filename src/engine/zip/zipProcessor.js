@@ -301,9 +301,14 @@ export async function processAndDownloadZip({
 
           let blob;
           let hasImage = false; // [FIX] Declare variable
-          const hasBounds = skeletonConfig.figureBounds &&
-            Array.isArray(skeletonConfig.figureBounds) &&
-            skeletonConfig.figureBounds.length === 4;
+          const boundsAr = skeletonConfig.figureBounds;
+          const hasBounds = boundsAr && Array.isArray(boundsAr) && boundsAr.length === 4 &&
+            boundsAr.some(v => Number(v) !== 0);
+
+          let isEmpty = true;
+          if (Array.isArray(boundsAr) && boundsAr.length === 4) {
+            isEmpty = boundsAr.every(v => Number(v) === 0);
+          }
 
           // 크롭 로직 부분 (zipProcessor 또는 해당 로직 위치)
           if (hasBounds) {
@@ -313,7 +318,6 @@ export async function processAndDownloadZip({
             // [FIX] Coordinate scale is 1000. Check full image accurately.
             // Assuming full image if top-left is near 0 and bottom-right is near 1000.
             const isFullImage = (ymin <= 10) && (xmin <= 10) && (ymax >= 990) && (xmax >= 990);
-            const isEmpty = ymin === 0 && xmin === 0 && ymax === 0 && xmax === 0;
 
             if (!isEmpty && !isFullImage) {
               const w = img.naturalWidth;
@@ -350,8 +354,9 @@ export async function processAndDownloadZip({
             }
           }
 
-          // [FIX] If no bounds or full image, fetch the original image blob
-          if (!hasImage && skeletonConfig.contentImageUrl) {
+          // [FIX] If no bounds detected or full image, fetch the original image blob
+          // But only if it's NOT explicitly empty ([0,0,0,0])
+          if (!hasImage && !isEmpty && skeletonConfig.contentImageUrl) {
             try {
               const response = await fetch(skeletonConfig.contentImageUrl);
               blob = await response.blob();

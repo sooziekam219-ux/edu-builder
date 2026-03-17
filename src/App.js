@@ -2689,59 +2689,110 @@ function TogetherSelectEditor({ currentData, onChange }) {
     };
 
     const updateOption = (li, pi, part, optIdx, value) => {
-        const nextOptions = [...(part.options || ["", "", ""])];
+        const nextOptions = [...(part.options || [""])];
         nextOptions[optIdx] = value;
         patchPart(li, pi, { ...part, options: nextOptions });
+    };
+
+    const addOption = (li, pi, part) => {
+        const nextOptions = [...(part.options || ["", "", ""]), ""];
+        patchPart(li, pi, { ...part, options: nextOptions });
+    };
+
+    const removeOption = (li, pi, part) => {
+        const currentOptions = part.options || [""];
+        if (currentOptions.length <= 1) return;
+        const nextOptions = currentOptions.slice(0, -1);
+        patchPart(li, pi, { ...part, options: nextOptions });
+    };
+
+    const toggleSelectionMode = (li, pi, part) => {
+        const nextMode = part.selectionEnabled === false ? true : false;
+        patchPart(li, pi, { ...part, selectionEnabled: nextMode });
     };
 
     return (
         <div className="space-y-8">
             <div className="p-8 bg-blue-50/60 border border-blue-200 rounded-[2.5rem] space-y-5">
-                <div>
-                    <div className="text-xs font-black uppercase tracking-widest text-blue-600">함께 풀기(선택형)</div>
-                    <div className="text-sm font-bold text-slate-600 mt-1">각 빈칸의 정답과 오답 선택지를 설정하세요.</div>
+                <div className="flex justify-between items-center">
+                    <div>
+                        <div className="text-xs font-black uppercase tracking-widest text-blue-600">함께 풀기(선택형)</div>
+                        <div className="text-sm font-bold text-slate-600 mt-1">각 빈칸의 정답과 오답 선택지를 설정하세요. 선택지 순서는 랜덤 배치되며, OFF를 누르면 선택형 문제가 생성되지 않습니다.</div>
+                    </div>
                 </div>
 
                 <div className="space-y-4">
                     {blanks.map(({ li, pi, part }, idx) => (
                         <div key={`${li}-${pi}`} className="bg-white rounded-2xl border border-blue-100 p-6 space-y-4 shadow-sm">
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-lg bg-blue-500 text-white font-black flex items-center justify-center text-xs">
-                                    {idx + 1}
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-lg bg-blue-500 text-white font-black flex items-center justify-center text-xs">
+                                        {idx + 1}
+                                    </div>
+                                    <span className="font-bold text-slate-700">빈칸 {idx + 1}번 설정</span>
                                 </div>
-                                <span className="font-bold text-slate-700">빈칸 {idx + 1}번 선택지 설정</span>
+                                <div className="flex items-center gap-4">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">선택형 문제로 생성</span>
+                                        <button
+                                            onClick={() => toggleSelectionMode(li, pi, part)}
+                                            className={`px-4 py-1.5 rounded-xl font-black text-[10px] transition-all ${part.selectionEnabled !== false ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
+                                        >
+                                            {part.selectionEnabled !== false ? "ON" : "OFF"}
+                                        </button>
+                                    </div>
+                                    {part.selectionEnabled !== false && (
+                                        <div className="flex items-center bg-slate-100 rounded-xl p-1 gap-1">
+                                            <button
+                                                onClick={() => removeOption(li, pi, part)}
+                                                className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white text-slate-600 transition-all font-bold"
+                                            >
+                                                -
+                                            </button>
+                                            <span className="px-2 text-[10px] font-black text-slate-500 uppercase">{(part.options || []).length}개</span>
+                                            <button
+                                                onClick={() => addOption(li, pi, part)}
+                                                className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white text-slate-600 transition-all font-bold"
+                                            >
+                                                +
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
 
-                            <div className="grid grid-cols-3 gap-4">
+                            {part.selectionEnabled !== false ? (
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    {(part.options || ["", "", ""]).map((opt, oIdx) => (
+                                        <div key={oIdx} className="space-y-2">
+                                            <label className={`text-[10px] font-black uppercase tracking-widest block ${oIdx === 0 ? "text-emerald-500" : "text-rose-400"}`}>
+                                                {oIdx === 0 ? "정답" : `오답 ${oIdx}`}
+                                            </label>
+                                            <input
+                                                className={`w-full p-3 rounded-xl border font-bold text-sm outline-none transition-all ${oIdx === 0
+                                                    ? "border-emerald-100 bg-emerald-50/30 focus:ring-2 focus:ring-emerald-200"
+                                                    : "border-rose-100 bg-rose-50/30 focus:ring-2 focus:ring-rose-200"
+                                                    }`}
+                                                value={opt}
+                                                onChange={(e) => updateOption(li, pi, part, oIdx, e.target.value)}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-emerald-500 uppercase tracking-widest block">정답</label>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">텍스트로 노출될 정답</label>
                                     <input
-                                        className="w-full p-3 rounded-xl border border-emerald-100 bg-emerald-50/30 font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-200"
+                                        className="w-full p-3 rounded-xl border border-slate-100 bg-slate-50/50 font-bold text-sm outline-none focus:ring-2 focus:ring-blue-100 text-slate-600"
                                         value={part.options?.[0] || ""}
                                         onChange={(e) => updateOption(li, pi, part, 0, e.target.value)}
                                     />
+                                    <p className="text-[10px] text-slate-400 ml-1 font-medium">이 빈칸은 빌더에서 설정한 정답이 텍스트로 보이며 선택형 기능은 비활성화됩니다.</p>
                                 </div>
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-rose-400 uppercase tracking-widest block">오답 1</label>
-                                    <input
-                                        className="w-full p-3 rounded-xl border border-rose-100 bg-rose-50/30 font-bold text-sm outline-none focus:ring-2 focus:ring-rose-200"
-                                        value={part.options?.[1] || ""}
-                                        onChange={(e) => updateOption(li, pi, part, 1, e.target.value)}
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-rose-400 uppercase tracking-widest block">오답 2</label>
-                                    <input
-                                        className="w-full p-3 rounded-xl border border-rose-100 bg-rose-50/30 font-bold text-sm outline-none focus:ring-2 focus:ring-rose-200"
-                                        value={part.options?.[2] || ""}
-                                        onChange={(e) => updateOption(li, pi, part, 2, e.target.value)}
-                                    />
-                                </div>
-                            </div>
-
-
+                            )}
                         </div>
                     ))}
+
 
                     {blanks.length === 0 && (
                         <div className="p-10 text-center bg-white rounded-2xl border border-dashed border-slate-200">
