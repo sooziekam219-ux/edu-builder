@@ -3,5 +3,6 @@ export const TYPE_KEYS = {
   QUESTION_SELECT: "question.select",
   TOGETHER_SELECT: "together.select",
   CONCEPT: "concept",
-  TOGETHER_SELF: "together.self"
+  TOGETHER_SELF: "together.self",
+  QUESTION_IMAGE: "question.image"
 };

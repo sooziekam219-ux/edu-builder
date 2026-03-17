@@ -1,6 +1,6 @@
 
 import { sanitizeLaTeX } from "../../../utils/sanitize";
-export const injectTogetherSelfBase = ({ doc, data }) => {
+export const injectTogetherSelfBase = ({ doc, data, skeletonConfig }) => {
     // 1. Detect View Type (Together vs Self)
     const $headerTitle = doc.querySelector('header img');
     const altText = $headerTitle?.getAttribute('alt') || "";
@@ -98,6 +98,46 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
     });
 
     // 4. Inject Content Lines
+    // [NEW] 삽화가 있으면 flex 2컬럼 구조 도입
+    const imageUrl = skeletonConfig?.contentImageUrl;
+    let $injectionTarget = $main;
+
+    if (imageUrl && imageUrl.startsWith("./images/")) {
+        // 1. zipProcessor가 넣은 잔여 이미지 제거
+        const junkImg = doc.querySelector("img.illustration-img");
+        if (junkImg) junkImg.remove();
+
+        // 2. flex wrapper 생성 (겹침 방지)
+        const flexWrapper = doc.createElement("div");
+        flexWrapper.className = "illust-flex-wrapper";
+        flexWrapper.style.cssText = "display:flex; gap:20px; align-items:flex-start; margin-top:20px;";
+
+        const contentCol = doc.createElement("div");
+        contentCol.className = "content-col";
+        contentCol.style.flex = "3"; // 75%
+
+        const imgCol = doc.createElement("div");
+        imgCol.className = "image-col";
+        imgCol.style.cssText = "flex:1; flex-shrink:0; display:flex; align-items:flex-start; justify-content:center;";
+
+        const imgEl = doc.createElement("img");
+        imgEl.src = imageUrl;
+        imgEl.alt = skeletonConfig?.altText || "삽화";
+        imgEl.style.cssText = "width:100%; height:auto; border-radius:8px;";
+        imgCol.appendChild(imgEl);
+
+        flexWrapper.appendChild(contentCol);
+        flexWrapper.appendChild(imgCol);
+
+        // [FIX] 버튼 영역(.btn-wrap) 앞에 flex wrapper 삽입
+        const $btnWrap = $main.querySelector('.btn-wrap');
+        if ($btnWrap) $main.insertBefore(flexWrapper, $btnWrap);
+        else $main.appendChild(flexWrapper);
+
+        // 이후의 모든 콘텐츠는 contentCol에 주입
+        $injectionTarget = contentCol;
+    }
+
     let blankCount = 0;
 
     if (Array.isArray(data.lines)) {
@@ -137,56 +177,72 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
                         const correctIdx = (parseInt(part.correctIndex, 10) || 1) - 1;
                         // [수정] answerLatex 필드도 확인
                         const answer = part.answerLatex || options[correctIdx] || "";
-
-                        const inpWrap = doc.createElement('div');
-                        inpWrap.className = "inp-wrap m0 mr10";
                         const explanation = part.explanation || "";
 
-                        // [추가] 정답 길이에 따른 너비 자동 계산 (Self Study용)
-                        const cleanAns = String(answer || "")
-                            .replace(/\\\(|\\\)|\\\[|\\\]/g, '')
-                            .replace(/\\left|\\right/g, '')
+                        // [NEW] inputEnabled 가 false 인 경우 입력칸 대신 정답 노출
+                        if (part.inputEnabled === false) {
+                            const span = doc.createElement('span');
+                            span.className = "math math-tex tex2jax_process ml10 mr10";
+                            span.style.fontWeight = "bold";
+                            span.style.color = "#00bcf1";
+                            span.setAttribute("translate", "no");
+                            span.innerHTML = sanitizeLaTeX(answer);
+                            div.appendChild(span);
+                        } else {
+                            const inpWrap = doc.createElement('div');
+                            inpWrap.className = "inp-wrap m0 mr10";
 
-                            .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, (match, a, b) => {
-                                return a.length >= b.length ? a : b;
-                            })
-                            .replace(/\\sqrt(\{[^{}]*\}|.)/g, (match, p1) => {
-                                return p1 ? p1.replace(/[{}]/g, '') : "";
-                            })
-                            .replace(/\\circ/g, '')
-                            .replace(/\\[a-zA-Z]+/g, ' ')
-                            .trim();
+                            // [추가] 정답 길이에 따른 너비 자동 계산 (Self Study용)
+                            const cleanAns = String(answer || "")
+                                .replace(/\\\(|\\\)|\\\[|\\\]/g, '')
+                                .replace(/\\left|\\right/g, '')
 
-                        let widthClass = "w150";
+                                .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, (match, a, b) => {
+                                    return a.length >= b.length ? a : b;
+                                })
+                                .replace(/\\sqrt(\{[^{}]*\}|.)/g, (match, p1) => {
+                                    return p1 ? p1.replace(/[{}]/g, '') : "";
+                                })
+                                .replace(/\\circ/g, '')
+                                .replace(/\\[a-zA-Z]+/g, ' ')
+                                .trim();
 
-                        const len = cleanAns.length;
-                        if (len <= 4) widthClass = "w150";
-                        else if (len <= 6) widthClass = "w300";
-                        else if (len <= 9) widthClass = "w400";
-                        else if (len <= 13) widthClass = "w500";
-                        else if (len <= 16) widthClass = "w600";
-                        else widthClass = "w600";
+                            let widthClass = "w150";
 
-                        // [수정] onclick 제거, ID와 클래스(너비/마진) 적용
-                        inpWrap.innerHTML = `
-    <div class="${widthClass} ml10 mr10">
-        <button type="button" class="btn-math">${blankCount}번 정답 입력칸</button>
-        <p id="QuizInput${blankCount}" 
-           class="QuizInput${blankCount}" 
-           data-no_idx="${blankCount}" 
-           data-class_idx="1" 
-           style="padding: 0px 33px;"></p>
-        <div class="correct">${sanitizeLaTeX(answer)}</div>
-        ${explanation ? `<p class="explanation-text" style="display:none">${sanitizeLaTeX(explanation)}</p>` : ''}
-    </div>
-`;
-                        div.appendChild(inpWrap);
+                            const len = cleanAns.length;
+                            if (len <= 4) widthClass = "w150";
+                            else if (len <= 6) widthClass = "w250";
+                            else if (len <= 9) widthClass = "w350";
+                            else if (len <= 13) widthClass = "w400";
+                            else if (len <= 16) widthClass = "w500";
+                            else widthClass = "w600";
+
+                            // [수정] onclick 제거, ID와 클래스(너비/마진) 적용
+                            inpWrap.innerHTML = `
+                                <div class="${widthClass} ml10 mr10">
+                                    <button type="button" class="btn-math">${blankCount}번 정답 입력칸</button>
+                                    <p id="QuizInput${blankCount}" 
+                                    class="QuizInput${blankCount}" 
+                                    data-no_idx="${blankCount}" 
+                                    data-class_idx="1" 
+                                    style="padding: 0px 33px;"></p>
+                                    <div class="correct">${sanitizeLaTeX(answer)}</div>
+                                    ${explanation ? `<p class="explanation-text" style="display:none">${sanitizeLaTeX(explanation)}</p>` : ''}
+                                </div>
+                            `;
+                            div.appendChild(inpWrap);
+                        }
                     }
                 });
 
-                const $btnWrap = $main.querySelector('.btn-wrap');
-                if ($btnWrap) $main.insertBefore(div, $btnWrap);
-                else $main.appendChild(div);
+                // [FIX] $injectionTarget이 main이면 버튼 앞에, 아니면(콘텐츠컬럼) 마지막에 추가
+                if ($injectionTarget === $main) {
+                    const $btnWrap = $main.querySelector('.btn-wrap');
+                    if ($btnWrap) $injectionTarget.insertBefore(div, $btnWrap);
+                    else $injectionTarget.appendChild(div);
+                } else {
+                    $injectionTarget.appendChild(div);
+                }
 
             } else {
                 // [Together Study Style] <p class="fs40 mb50">
@@ -210,29 +266,40 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
 
                         const maskWrap = doc.createElement('span');
                         maskWrap.className = "btn-mask-wrap";
-                        maskWrap.style.marginLeft = "15px";
-                        maskWrap.style.marginRight = "15px";
+                        maskWrap.style.marginLeft = "10px";
+                        maskWrap.style.marginRight = "10px";
                         maskWrap.style.display = "inline-block";
                         maskWrap.style.verticalAlign = "middle";
 
                         // [Improved Width Estimation] LaTeX awareness
-                        // Width should be based on visual horizontal space. Fractions are vertical.
+                        // 복잡한 수식 기호들의 시각적 너비를 고려하여 보정합니다. (정밀 축소 정적용)
                         const cleanAnswer = String(answer || "")
-                            .replace(/\\\(|\\\)|\\\[|\\\]/g, '') // Strip delimiters
+                            .replace(/\\\(|\\\)|\\\[|\\\]/g, '') // 구분자 제거
+                            .replace(/\\times/g, 'X') // 곱하기 기호 (1자)
+                            .replace(/\\div/g, 'D') // 나누기 기호 (1자)
+                            .replace(/\\circ/g, 'o') // 도(°) 기호
+                            .replace(/\\cos|\\sin|\\tan/g, 'c') // 삼각함수는 1자로 축소 (MathJax 렌더링 특성 반영)
+                            .replace(/\\angle/g, 'A') // 각도 기호 (1자)
+                            .replace(/\\pm|\\mp/g, 'P') // 플러스마이너스 (1자)
+                            .replace(/\\sqrt\{([^{}]*)\}/g, (match, p1) => {
+                                // 루트 기호 자체 너비(약 1자) + 내부 내용
+                                return 'V' + p1;
+                            })
                             .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, (match, p1, p2) => {
-                                // For width estimation, a fraction is roughly as wide as its widest part
+                                // 분수는 분자/분모 중 긴 쪽 기준
                                 return p1.length > p2.length ? p1 : p2;
                             })
-                            .replace(/\\dot\{(\w)\}/g, '$1') // Strip dot
-                            .replace(/\\[a-zA-Z]+/g, ' ') // Strip other commands
+                            .replace(/\\dot\{(\w)\}/g, '$1')
+                            .replace(/\\[a-zA-Z]+/g, ' ') // 기타 명령어 공백 처리
                             .trim();
 
-                        // fs40 is ~40px height. Characters are roughly 22-25px wide for digits/letters.
-                        // We use a base width and a per-character width. 
-                        // Reduced character multiplier from 20 to 18, and base from 40 to 30.
-                        // Min width reduced from 80 to 60 for small fractions/single digits.
-                        // (전략...)
-                        const estimatedWidth = Math.max(60, (cleanAnswer.length * 18) + 30);
+                        // fs40(40px) 폰트 크기 기준, 문자당 평균 16px + 기본 여백 25px 적용 (기존보다 타이트하게)
+                        let estimatedWidth = Math.max(70, (cleanAnswer.length * 16) + 25);
+
+                        // [NEW] 삼각함수(cos, sin, tan)가 포함된 경우 추가로 3/4 수준(75%)으로 더 축소 (사용자 요청 반영)
+                        if (answer.includes('\\cos') || answer.includes('\\sin') || answer.includes('\\tan')) {
+                            estimatedWidth = Math.round(estimatedWidth * 0.75);
+                        }
 
                         // ✅ Builder 연동 변수 유지, 단 기본 넘버링(blankCount)은 제거
                         // const showLabel = !!part.labelEnabled;
@@ -296,9 +363,14 @@ export const injectTogetherSelfBase = ({ doc, data }) => {
                     }
                 });
 
-                const $btnWrap = $main.querySelector('.btn-wrap');
-                if ($btnWrap) $main.insertBefore(p, $btnWrap);
-                else $main.appendChild(p);
+                // [FIX] $injectionTarget이 main이면 버튼 앞에, 아니면(콘텐츠컬럼) 마지막에 추가
+                if ($injectionTarget === $main) {
+                    const $btnWrap = $main.querySelector('.btn-wrap');
+                    if ($btnWrap) $injectionTarget.insertBefore(p, $btnWrap);
+                    else $injectionTarget.appendChild(p);
+                } else {
+                    $injectionTarget.appendChild(p);
+                }
             }
         });
     }

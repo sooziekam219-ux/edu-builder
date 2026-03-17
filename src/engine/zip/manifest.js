@@ -15,6 +15,13 @@ const DEFAULT_MANIFEST_BY_TYPEKEY = {
     mainQuestion: ".q > p",
     guideText: "main > p.stxt",
   },
+
+  "question.image": {
+    headerImg: "header h1 img.lang-image",
+    mainQuestion: ".q > p",
+    guideText: "main > p.stxt",
+    rowTemplate: ".flex-row.ai-s.jc-sb",
+  },
 };
 
 export async function loadManifest({ zip, meta }) {

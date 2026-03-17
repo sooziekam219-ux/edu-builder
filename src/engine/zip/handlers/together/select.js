@@ -1,36 +1,54 @@
-// src/engine/together/select.js
-
 import { injectTogetherBase } from "./base";
 import { sanitizeLaTeX } from "../../../utils/sanitize";
 
 function normalize(raw) {
-  // zipProcessor가 extractedBuildData.lines 형태를 만든다고 가정
   return {
     header: raw?.header,
     title: raw?.title || "",
-    mainQuestion: raw?.mainQuestion || "", // 필드 분리
+    mainQuestion: raw?.mainQuestion || "",
     guideText: raw?.guideText ?? raw?.guide ?? "",
     lines: raw?.lines ?? [],
   };
 }
 
-function injectTogetherSelectHtml({ doc, data }) {
-  console.log("injectTogetherSelectHtml called", data); // Debug log
-
-  const container = doc.querySelector('div[translate="no"]') || doc.querySelector('main');
-  if (!container) {
-    console.warn("Container not found");
-    return;
+// 헬퍼: 배열 셔플 (Fisher-Yates)
+function shuffleArray(array) {
+  const newArray = [...array];
+  for (let i = newArray.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
   }
-  // MathJax 스캔을 방해하는 translate="no" 속성 제거
+  return newArray;
+}
+
+// 헬퍼: 정답 길이에 따른 빈칸 너비 계산
+function calculateBlankWidth(text) {
+  if (!text) return 80;
+
+  // LaTeX 명령어 및 특수 제어문자 제거하여 가시적인 글자수 측정
+  const clean = text.replace(/\\[a-zA-Z]+/g, '').replace(/[\s\(\)\{\}\^\_\\]/g, '');
+  const hasOps = /[\+\-\=\>\<]/.test(text);
+
+  // 기본 너비: 한 글자당 20px + 여백 20px, 최소 80px
+  let w = Math.max(80, clean.length * 20 + 20);
+
+  // 연산 기호가 하나라도 있으면 최소 160px 보장
+  if (hasOps) {
+    w = Math.max(160, w);
+  }
+
+  return w;
+}
+
+function injectTogetherSelectHtml({ doc, data }) {
+  const container = doc.querySelector('div[translate="no"]') || doc.querySelector('main');
+  if (!container) return;
+
   container.removeAttribute('translate');
-  // MathJax 강제 스캔을 위한 클래스 추가
   container.classList.add('tex2jax_process');
 
   const existingLines = Array.from(container.querySelectorAll(".txt1"));
-  console.log("Existing lines count:", existingLines.length);
 
-  // 1. 템플릿 확보 (기존 요소에서 복제하거나, 없으면 생성 - Fallback Logic)
   const createBase = (hasLabel) => {
     const div = doc.createElement("div");
     div.className = hasLabel ? "txt1 mb40 ml50" : "txt1 mb40 ml100 flex-row ai-c";
@@ -40,21 +58,18 @@ function injectTogetherSelectHtml({ doc, data }) {
   const ml50Base = existingLines.find((l) => l.classList.contains("ml50"))?.cloneNode(true) || createBase(true);
   const ml100Base = existingLines.find((l) => l.classList.contains("ml100"))?.cloneNode(true) || createBase(false);
 
-  // 2. 초기화 (oldzip logic: Wipe & Rebuild)
-  container.innerHTML = "";
+  existingLines.forEach(line => line.remove());
+
   let qIdx = 0;
   let bId = 0;
 
   (data.lines || []).forEach((line) => {
     qIdx++;
-    // 템플릿 선택: 라벨 유무에 따라 적절한 베이스 사용
     const base = line.label ? ml50Base : ml100Base;
     const newLine = base.cloneNode(true);
 
     newLine.innerHTML = "";
-    // 클래스 재설정 (혹시 베이스가 섞였을 경우 대비)
     newLine.className = line.label ? "txt1 mb40 ml50" : "txt1 mb40 ml100 flex-row ai-c";
-    // [중요] 각 문항에 고유 ID 부여 (정오 판별용 클래스/스크립트 대응)
     newLine.id = `Quiz${qIdx}`;
 
     if (line.label) {
@@ -71,27 +86,45 @@ function injectTogetherSelectHtml({ doc, data }) {
         tSpan.innerHTML = sanitizeLaTeX(part.content);
         newLine.appendChild(tSpan);
       } else if (part.type === "blank") {
-        bId++;
-
+        const isSelection = part.selectionEnabled !== false;
         const options = part.options || [];
-        const correctIdx = (parseInt(part.correctIndex, 10) || 1) - 1;
-        const correctValue = options[correctIdx] || "";
-        const finalCorrect = sanitizeLaTeX(correctValue);
+        const correctValue = options[0] || ""; // 빌더에서 첫 번째는 항상 정답
+        const autoWidth = calculateBlankWidth(correctValue);
 
-        const bSpan = doc.createElement("span");
-        bSpan.className = "btn-blank-wrap ml10";
-        bSpan.innerHTML = `
+        // part.width가 없거나, 구버전 기본값인 80/120인 경우 자동 너비 사용
+        const finalWidth = (!part.width || part.width === 80 || part.width === 120) ? autoWidth : part.width;
+
+        if (!isSelection) {
+          // 선택형 기능 OFF: 그냥 텍스트로 노출
+          const tSpan = doc.createElement("span");
+          tSpan.className = "ml10 math math-tex tex2jax_process color-blue font-bold";
+          tSpan.setAttribute("translate", "no");
+          tSpan.innerHTML = sanitizeLaTeX(correctValue);
+          newLine.appendChild(tSpan);
+        } else {
+          // 선택형 기능 ON: 랜덤화된 선택지 UI 생성
+          bId++;
+
+          // 정답 보존 및 셔플
+          const shuffled = shuffleArray(options);
+          const newCorrectIdx = shuffled.indexOf(correctValue);
+
+          // part 객체에 셔플된 정보 임시 저장 (patchActJs에서 사용)
+          part._shuffledCorrectIdx = newCorrectIdx + 1;
+
+          const bSpan = doc.createElement("span");
+          bSpan.className = "btn-blank-wrap ml10";
+          bSpan.innerHTML = `
 <input type="checkbox" class="check-blank" id="check-blank${bId}">
 <label for="check-blank${bId}" class="btn-blank">빈칸</label>
 <ul class="select-wrap bottom">
-  ${options
-            .map((opt, oIdx) => `<li><button type="button" class="btn-select math math-tex ans${oIdx + 1}" translate="no">${sanitizeLaTeX(opt)}</button></li>`)
-            .join("")}
+  ${shuffled.map((opt, oIdx) => `<li><button type="button" class="btn-select math math-tex ans${oIdx + 1}" translate="no">${sanitizeLaTeX(opt)}</button></li>`).join("")}
 </ul>
-<span class="write-txt" style="width: ${part.width || 120}px"></span>
-<span class="correct math math-tex tex2jax_process" translate="no">${finalCorrect}</span>
+<span class="write-txt" style="width: ${finalWidth}px"></span>
+<span class="correct math math-tex tex2jax_process" translate="no">${sanitizeLaTeX(correctValue)}</span>
 `;
-        newLine.appendChild(bSpan);
+          newLine.appendChild(bSpan);
+        }
       }
     });
 
@@ -101,12 +134,11 @@ function injectTogetherSelectHtml({ doc, data }) {
 
 function patchTogetherSelectActJs(actJsText, data) {
   const daps = [];
-
-  // 모든 라인을 순회하며 그 안의 모든 빈칸(blank)의 정답을 순서대로 수집
   (data.lines || []).forEach((line) => {
     (line.parts || []).forEach((part) => {
-      if (part.type === "blank") {
-        const idx = parseInt(part.correctIndex, 10) || 1;
+      if (part.type === "blank" && part.selectionEnabled !== false) {
+        // injectHtmlPage에서 계산된 셔플된 정답 인덱스 사용
+        const idx = part._shuffledCorrectIdx || 1;
         daps.push(idx);
       }
     });
@@ -115,45 +147,30 @@ function patchTogetherSelectActJs(actJsText, data) {
   let out = actJsText;
   const zeros = daps.map(() => 0);
 
-  // 1. dap_array 치환 (var/let/const 및 유연한 공백/세미콜론 대응)
   const dapRegex = /(?:var|let|const)\s+dap_array\s*=\s*\[[\s\S]*?\]\s*;?/g;
-  if (dapRegex.test(out)) {
-    out = out.replace(dapRegex, `var dap_array = ${JSON.stringify(daps)};`);
-  } else {
-    // 이미 선언된 경우 (var/let 없이) 대응
-    out = out.replace(/dap_array\s*=\s*\[[\s\S]*?\]\s*;?/g, `dap_array = ${JSON.stringify(daps)};`);
-  }
+  if (dapRegex.test(out)) out = out.replace(dapRegex, `var dap_array = ${JSON.stringify(daps)};`);
+  else out = out.replace(/dap_array\s*=\s*\[[\s\S]*?\]\s*;?/g, `dap_array = ${JSON.stringify(daps)};`);
 
-  // 2. 관련 보조 배열 동기화 (ans_array, card_array)
   const ansRegex = /(?:var|let|const)\s+ans_array\s*=\s*\[[\s\S]*?\]\s*;?/g;
   const cardRegex = /(?:var|let|const)\s+card_array\s*=\s*\[[\s\S]*?\]\s*;?/g;
 
-  if (ansRegex.test(out)) {
-    out = out.replace(ansRegex, `var ans_array = ${JSON.stringify(zeros)};`);
-  }
-  if (cardRegex.test(out)) {
-    out = out.replace(cardRegex, `var card_array = ${JSON.stringify(zeros)};`);
-  }
+  if (ansRegex.test(out)) out = out.replace(ansRegex, `var ans_array = ${JSON.stringify(zeros)};`);
+  if (cardRegex.test(out)) out = out.replace(cardRegex, `var card_array = ${JSON.stringify(zeros)};`);
 
-  // 3. 문항 개수(q_len) 업데이트
   out = out.replace(/(?:var|let|const)\s+q_len\s*=\s*[^;]+;?/g, `var q_len = ${daps.length};`);
 
   return out;
 }
 
+
 const selectHandler = {
   typeKey: "together.select",
-
   normalize,
-
-  injectHtmlPage({ doc, manifest, data, pageIndex }) {
-    // ✅ 함께 풀기 공통(헤더 이미지/guideText) 먼저
-    injectTogetherBase({ doc, data, manifest });
-
-    // ✅ 본문(라인/빈칸/보기) 채우기
+  // 🌟 [핵심] 인자에서 skeletonConfig를 받아와서 base로 넘겨줍니다.
+  injectHtmlPage({ doc, manifest, data, pageIndex, skeletonConfig }) {
+    injectTogetherBase({ doc, data, manifest, skeletonConfig });
     injectTogetherSelectHtml({ doc, data });
   },
-
   patchActJs({ actJsText, data, pageIndex }) {
     return patchTogetherSelectActJs(actJsText, data);
   },

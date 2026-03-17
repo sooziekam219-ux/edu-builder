@@ -17,6 +17,9 @@ const createTogetherSelfStrategy = (config) => {
             const dTitle = data?.title || "";
             const isSelfStudy = (dTitle.includes("스스로") && !dTitle.includes("함께"));
 
+            const fBounds = options.figureBounds || options.figure_bounds || [0, 0, 0, 0];
+            const hasValidBounds = fBounds.some(v => Number(v) !== 0);
+
             let hUrl = options.headerUrl;
             if (isSelfStudy) {
                 hUrl = "images/tit-self.png";
@@ -28,9 +31,9 @@ const createTogetherSelfStrategy = (config) => {
 
             return {
                 headerUrl: hUrl,
-                contentImageUrl: options.hasImage ? (options.contentImageUrl || null) : null,
-                figureBounds: options.figureBounds,
-                figureAlt: options.figureAlt,
+                contentImageUrl: (options.hasImage || hasValidBounds) ? (options.contentImageUrl || null) : null,
+                figureBounds: fBounds,
+                figureAlt: options.figureAlt || options.figure_alt,
                 // [HINT] Tell zipProcessor which view to use as base
                 sourceHtml: isSelfStudy ? "view02.html" : "view01.html"
             };
@@ -46,9 +49,10 @@ const createTogetherSelfStrategy = (config) => {
         },
 
         // [Required] Manipulates the cloned HTML
-        injectHtmlPage({ doc, data, pageIndex }) {
+        injectHtmlPage({ doc, manifest, data, pageIndex, skeletonConfig }) {
             // Apply DOM changes using base handler logic
-            injectTogetherSelfBase({ doc, data });
+            // [NEW] Pass skeletonConfig for illustration support
+            injectTogetherSelfBase({ doc, data, skeletonConfig });
 
             // Additional Together+Self specific logic can go here (e.g., specialized act.js patching if needed)
         },

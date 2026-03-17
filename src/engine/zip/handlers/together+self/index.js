@@ -16,11 +16,12 @@ const togetherSelfHandler = {
   },
 
   // 실제 HTML 파일에 데이터 주입
-  injectHtmlPage({ doc, manifest, data, pageIndex }) {
+  injectHtmlPage({ doc, manifest, data, pageIndex, skeletonConfig }) {
     console.log("injectTogetherSelf HTML called", data);
 
     // base.js의 함수가 view01(함께)/view02(스스로)를 자동 구분하여 처리
-    injectTogetherSelfBase({ doc, data });
+    // [NEW] Pass skeletonConfig for illustration support
+    injectTogetherSelfBase({ doc, data, skeletonConfig });
   },
 
   // Act.js 수정 필요 시 (현재는 단순 반환)

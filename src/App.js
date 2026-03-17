@@ -2767,11 +2767,9 @@ function TogetherSelectEditor({ currentData, onChange }) {
     return (
         <div className="space-y-8">
             <div className="p-8 bg-blue-50/60 border border-blue-200 rounded-[2.5rem] space-y-5">
-                <div className="flex justify-between items-center">
-                    <div>
-                        <div className="text-xs font-black uppercase tracking-widest text-blue-600">함께 풀기(선택형)</div>
-                        <div className="text-sm font-bold text-slate-600 mt-1">각 빈칸의 정답과 오답 선택지를 설정하세요(순서 랜덤 배치) 배치되며, OFF를 누르면 선택형 문제가 생성되지 않습니다.</div>
-                    </div>
+                <div>
+                    <div className="text-xs font-black uppercase tracking-widest text-blue-600">함께 풀기(선택형)</div>
+                    <div className="text-sm font-bold text-slate-600 mt-1">각 빈칸의 정답과 오답 선택지를 설정하세요.</div>
                 </div>
 
                 <div className="space-y-4">
