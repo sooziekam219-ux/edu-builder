@@ -5,9 +5,11 @@ import { collection, getDocs } from "firebase/firestore";
 import togetherSelect from "./handlers/together/select";
 import questionMathinput from "./handlers/question/mathinput"; // 이미 쓰고 있으면 그걸로
 import questionTextinput from "./handlers/question/textinput"; // [NEW] Strategy Pattern (Input v1)
+import questionImage from "./handlers/question/image"; // [NEW]
 import togetherSelfHandler from "./handlers/together+self/index"; // [NEW]
 
 import createInputStrategy from "./strategies/input_v1";
+import createImagesStrategy from "./strategies/images_v1"; // [NEW]
 import createTogetherStrategy from "./strategies/together_v1";
 import createTogetherSelfStrategy from "./strategies/together_self_v1"; // [NEW]
 import { loadManifest } from "./manifest"; // [NEW]
@@ -17,6 +19,7 @@ const ENGINE_BY_TYPEKEY = {
   [togetherSelect.typeKey]: togetherSelect,
   [questionMathinput.typeKey]: questionMathinput,
   [questionTextinput.typeKey]: questionTextinput,
+  [questionImage.typeKey]: questionImage,
   [togetherSelfHandler.typeKey]: togetherSelfHandler, // [NEW]
 };
 
@@ -74,8 +77,34 @@ export async function processAndDownloadZip({
 
   try {
     // 1) 템플릿 메타
-    const templateMeta = templates.find((t) => t.id === selectedTemplateId);
-    if (!templateMeta) throw new Error("템플릿 메타데이터를 찾을 수 없습니다.");
+    let templateMeta = templates.find((t) => t.id === selectedTemplateId);
+
+    if (customConfig?.baseTemplateTypeKey) {
+      const matchedBaseTemplate =
+        templates.find(
+          (t) =>
+            t.typeKey === customConfig.baseTemplateTypeKey &&
+            String(t.id).startsWith("temp_")
+        ) ||
+        templates.find(
+          (t) => t.typeKey === customConfig.baseTemplateTypeKey
+        );
+
+      if (matchedBaseTemplate) {
+        templateMeta = matchedBaseTemplate;
+      } else {
+        console.warn(
+          "[ZIP] baseTemplateTypeKey에 해당하는 템플릿을 찾지 못해 selectedTemplateId를 사용합니다:",
+          customConfig.baseTemplateTypeKey
+        );
+      }
+    }
+
+    if (!templateMeta) {
+      throw new Error("템플릿 메타데이터를 찾을 수 없습니다.");
+    }
+
+    const templateIdToUse = templateMeta.id;
     //const baseTemplateId =
     //  customConfig?.baseTemplateTypeKey
     //    ? templates.find(t => t.typeKey === customConfig.baseTemplateTypeKey)?.id
@@ -95,6 +124,12 @@ export async function processAndDownloadZip({
       } else if (typeKey === TYPE_KEYS.TOGETHER_SELF) {
         console.log("Together+Self Strategy Selected");
         engine = createTogetherSelfStrategy(customConfig);
+      } else if (typeKey === TYPE_KEYS.QUESTION_IMAGE) {
+        console.log("Images Strategy Selected");
+        engine = createImagesStrategy(customConfig);
+      } else if (typeKey === TYPE_KEYS.QUESTION_MATHINPUT) {
+        console.log("MathInput Handler Selected (direct)");
+        engine = ENGINE_BY_TYPEKEY[TYPE_KEYS.QUESTION_MATHINPUT];
       } else {
         // Default to input_v1 (input.custom)
         engine = createInputStrategy(customConfig);
@@ -107,6 +142,15 @@ export async function processAndDownloadZip({
     if (!typeKey) throw new Error("템플릿에 typeKey가 없습니다.");
     if (!engine) throw new Error(`엔진이 없습니다: ${typeKey}`);
 
+    console.log("[ZIP] selectedTemplateId:", selectedTemplateId);
+    console.log("[ZIP] customConfig.baseTemplateTypeKey:", customConfig?.baseTemplateTypeKey);
+    console.log("[ZIP] resolved templateMeta:", templateMeta);
+    console.log("[ZIP] templateIdToUse:", templateIdToUse);
+    console.log("[ZIP] templateMeta.typeKey:", templateMeta?.typeKey);
+    console.log(
+      "[ZIP] chunks path:",
+      `artifacts/${appId}/public/data/templates/${templateIdToUse}/chunks`
+    );
     // 2) Firestore chunks에서 zip 복원
     const chunksRef = collection(
       db,
@@ -115,7 +159,7 @@ export async function processAndDownloadZip({
       "public",
       "data",
       "templates",
-      selectedTemplateId,
+      templateIdToUse,
       "chunks"
     );
     const chunksSnap = await getDocs(chunksRef);
@@ -124,6 +168,9 @@ export async function processAndDownloadZip({
         "서버에서 템플릿 데이터를 찾을 수 없습니다. (업로드 실패 가능성)\n해당 템플릿을 삭제 후 다시 업로드해주세요."
       );
     }
+    console.log("[ZIP] chunksSnap.empty:", chunksSnap.empty);
+    console.log("[ZIP] chunks count:", chunksSnap.size);
+    console.log("[ZIP] chunk ids:", chunksSnap.docs.map(d => d.id));
 
     const sorted = chunksSnap.docs.map((d) => d.data()).sort((a, b) => a.index - b.index);
 
@@ -254,9 +301,14 @@ export async function processAndDownloadZip({
 
           let blob;
           let hasImage = false; // [FIX] Declare variable
-          const hasBounds = skeletonConfig.figureBounds &&
-            Array.isArray(skeletonConfig.figureBounds) &&
-            skeletonConfig.figureBounds.length === 4;
+          const boundsAr = skeletonConfig.figureBounds;
+          const hasBounds = boundsAr && Array.isArray(boundsAr) && boundsAr.length === 4 &&
+            boundsAr.some(v => Number(v) !== 0);
+
+          let isEmpty = true;
+          if (Array.isArray(boundsAr) && boundsAr.length === 4) {
+            isEmpty = boundsAr.every(v => Number(v) === 0);
+          }
 
           // 크롭 로직 부분 (zipProcessor 또는 해당 로직 위치)
           if (hasBounds) {
@@ -266,17 +318,23 @@ export async function processAndDownloadZip({
             // [FIX] Coordinate scale is 1000. Check full image accurately.
             // Assuming full image if top-left is near 0 and bottom-right is near 1000.
             const isFullImage = (ymin <= 10) && (xmin <= 10) && (ymax >= 990) && (xmax >= 990);
-            const isEmpty = ymin === 0 && xmin === 0 && ymax === 0 && xmax === 0;
 
             if (!isEmpty && !isFullImage) {
               const w = img.naturalWidth;
               const h = img.naturalHeight;
 
-              // 1000 기준 좌표를 픽셀로 변환
-              const y1 = Math.floor((ymin / 1000) * h);
-              const x1 = Math.floor((xmin / 1000) * w);
-              const y2 = Math.ceil((ymax / 1000) * h);
-              const x2 = Math.ceil((xmax / 1000) * w);
+              // [NEW] 크롭 여유 패딩 추가 (각 방향 2% = 20/1000)
+              const PAD = 20; // 0~1000 스케일에서 2%
+              const padYmin = Math.max(0, ymin - PAD);
+              const padXmin = Math.max(0, xmin - PAD);
+              const padYmax = Math.min(1000, ymax + PAD);
+              const padXmax = Math.min(1000, xmax + PAD);
+
+              // 패딩 적용된 좌표를 픽셀로 변환
+              const y1 = Math.floor((padYmin / 1000) * h);
+              const x1 = Math.floor((padXmin / 1000) * w);
+              const y2 = Math.ceil((padYmax / 1000) * h);
+              const x2 = Math.ceil((padXmax / 1000) * w);
 
               const cropW = Math.max(1, x2 - x1);
               const cropH = Math.max(1, y2 - y1);
@@ -290,11 +348,15 @@ export async function processAndDownloadZip({
               blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
 
               hasImage = true; // 실제 크롭 성공 시에만 이미지 활성화
+
+              // [NEW] 가로/세로 비율 정보 저장 (이미지 클래스 분기용)
+              skeletonConfig.imageOrientation = cropW >= cropH ? "landscape" : "portrait";
             }
           }
 
-          // [FIX] If no bounds or full image, fetch the original image blob
-          if (!hasImage && skeletonConfig.contentImageUrl) {
+          // [FIX] If no bounds detected or full image, fetch the original image blob
+          // But only if it's NOT explicitly empty ([0,0,0,0])
+          if (!hasImage && !isEmpty && skeletonConfig.contentImageUrl) {
             try {
               const response = await fetch(skeletonConfig.contentImageUrl);
               blob = await response.blob();
@@ -336,7 +398,6 @@ export async function processAndDownloadZip({
         }
       }
 
-      // --- DOM Modification ---
       // Header
       if (skeletonConfig.headerUrl) {
         const headerImg = doc.querySelector(".tit img") || doc.querySelector("header img");
@@ -346,14 +407,14 @@ export async function processAndDownloadZip({
         }
       }
 
-      // [UPDATE] stxt Removal if image exists
-      if (skeletonConfig.contentImageUrl) {
+      // [UPDATE] stxt Removal if image exists (question.image, together.select는 자체 처리)
+      if (skeletonConfig.contentImageUrl && typeKey !== TYPE_KEYS.QUESTION_IMAGE && typeKey !== TYPE_KEYS.TOGETHER_SELECT) {
         const stxt = doc.querySelector(".stxt");
         if (stxt) stxt.remove();
       }
 
-      // Content Image Injection
-      if (skeletonConfig.contentImageUrl) {
+      // Content Image Injection (question.image, together.select는 자체 처리)
+      if (skeletonConfig.contentImageUrl && typeKey !== TYPE_KEYS.QUESTION_IMAGE && typeKey !== TYPE_KEYS.TOGETHER_SELECT) {
         const img = doc.createElement("img");
         img.src = skeletonConfig.contentImageUrl;
         if (skeletonConfig.altText) img.alt = skeletonConfig.altText;
@@ -431,6 +492,7 @@ export async function processAndDownloadZip({
         manifest: pageManifest,
         data: normalizedData,
         pageIndex: i,
+        skeletonConfig, // [NEW] 이미지 경로/alt 전달용
       });
 
 

@@ -9,7 +9,7 @@ import {
     Trash2, Maximize2, Plus, Server, Check, HardDrive, Layout, RefreshCw,
     Type, Info, ListPlus, X, AlertTriangle, Calculator, FileText,
     BookOpen, GripVertical, ChevronRight, MonitorPlay, MessageSquare,
-    Film, Eye, Code, Square, PenTool
+    Film, Eye, Code, Square, PenTool, Crop, MousePointer2
 } from 'lucide-react';
 import { processAndDownloadZip } from "./engine/zip/zipProcessor";
 import { TYPE_KEYS } from "./engine/typeKeys";
@@ -93,6 +93,7 @@ const CHUNK_SIZE = 500 * 1024;
 
 
 // --- Prompts ---
+//얘는 안 쓰는 프롬프트(구버전)
 const KIM_HWA_KYUNG_PROMPT = `
   **Role:** Expert digital textbook converter for 'Kim Hwa-kyung'.
   Analyze input textbook image(s) and split content into logical sections for a Storyboard.
@@ -109,6 +110,7 @@ const KIM_HWA_KYUNG_PROMPT = `
   2. **Together Part (함께 풀기):** Keep the text as is. Ensure LaTeX is correctly formatted.
   3. **Self Part (스스로 풀기):** Identify areas that are underlined in the image and represent them as '_'. one explanation has to be included.
   - **Answers:** Extract or solve for correct answers.
+  - **[빈칸 동기화 규칙 (매우 중요!!)]**: '함께 풀기' 섹션도 '스스로 풀기'의 밑줄 위치와 **논리적으로 동일한 지점**에 반드시 '□' 기호를 사용하여 빈칸을 생성해야 함. 이미지 원본에 빈칸이 없더라도 반드시 스스로 풀기와 대칭되도록 빈칸을 만들어낼 것.
  ### STEP 0: 텍스트 정제 규칙 (Text Cleaning)
 - 이미지에 포함된 "답:", "정답:", "풀이:", "해설:"로 시작하는 텍스트는 교사용 정보이므로 **절대 'body'나 'content'에 포함하지 마라.**
 - 만약 문제 바로 아래에 정답이 적혀 있다면, 해당 정답은 'answers' 배열에만 넣고 'body'에서는 삭제하라.
@@ -142,6 +144,7 @@ const KIM_HWA_KYUNG_PROMPT = `
   
 `;
 
+//현 버전 프롬프트
 const UNIVERSAL_BUILDER_PROMPT = `당신은 수학 교육 콘텐츠 전문 개발자입니다. 
 이미지를 분석하여 시각적 증거(로고, 아이콘)를 기반으로 유형을 분류하고, 정해진 규격의 JSON을 생성하라.
 
@@ -167,7 +170,17 @@ STEP 1의 결과에 따라 한 치의 예외도 없이 아래 규칙에 따라 '
   -> **분류:** \`question.mathinput\` (일반 문제)
   -> **특징:** 특정 박스 템플릿 없이 일반적인 발문과 수식이 나열됨.
 
-### STEP 3: 스스로 풀기 정답 추론 특수 규칙 (Crucial for together.self)
+- **[Case D] '함께 풀기' 템플릿 외부의 일반 '문제' 영역에 문제 풀이에 필수적인 '삽화(도형, 그래프, 표, 실생활 사진 등)'가 포함되어 있고 소문항이 없는 경우**
+  -> **분류:** \`question.image\` (이미지형 문제)
+  -> **특징:** 문제 텍스트보다 삽화 영역이 핵심이며, 반드시 \`figure_bounds\`를 추출해야 함.
+
+### STEP 3: 삽화(Figure) 영역 정밀 탐지 규칙 (Crucial for question.image)
+AI는 다음 지침에 따라 \`figure_bounds\`를 [ymin, xmin, ymax, xmax] (0~1000) 좌표로 추출하라:
+1. **필수 삽화 매핑**: 문제 텍스트에 "그림과 같이", "그래프에서", "정육각형" 등의 표현이 있다면 반드시 해당 영역을 포착하라.
+2. **최소 영역 원칙**: 텍스트를 제외하고 순수하게 삽화(도형, 기호 포함)만 포함하는 가장 타이트한 사각형 영역을 잡아야 함.
+3. **탐지 실패 방지**: 삽화가 흐릿하거나 작아도 실루엣을 따라 영역을 확정하라. 삽화가 없으면 [0, 0, 0, 0].
+
+### STEP 4: 스스로 풀기 정답 추론 특수 규칙 (Crucial for together.self)
 '스스로 풀기'의 빈칸(밑줄) 정답을 추출할 때는 절대 임의로 계산 방식을 생략하거나 건너뛰지 마라. 반드시 짝꿍인 '함께 풀기'의 풀이 과정을 1:1 템플릿으로 사용하여 아래의 논리적 흐름(Chain of Thought)을 따라라:
 1. **패턴 매핑 (Pattern Mapping):** '함께 풀기'의 풀이 과정 각 줄에서 어떤 공식, 식의 변형, 연산 논리가 쓰였는지 파악하라.
 2. **숫자 치환 (Substitution):** '스스로 풀기'에 주어진 문제의 숫자와 조건을 '함께 풀기'와 완전히 동일한 위치에 대입하라. 
@@ -175,12 +188,13 @@ STEP 1의 결과에 따라 한 치의 예외도 없이 아래 규칙에 따라 '
 
 **공통 규칙 (매우 중요):**
 - **정답 및 해설 직접 계산:** 예시 텍스트를 그대로 복사하지 마십시오. 당신은 수학 교사입니다. 이미지의 문제를 **직접 풀이하여 정확한 수학적 정답**을 구하고, 그에 맞는 **구체적인 해설**을 작성하여 JSON 필드에 채워 넣어야 합니다.
+- **[해설(explanation) 작성 절대 규칙 - 매우 중요!]**: 'explanation' 필드에는 오직 학생에게 제공할 **순수 수학적 풀이 과정(Step-by-step)**만 작성해야 합니다. 자신이 왜 이 유형으로 분류했는지에 대한 메타 설명, 레이아웃 분석, 시스템 프롬프트 내용(예: "[정답 설정]", "삽화(Figure)와 발문 조화", "수식 입력창을 통한 풀이 유도" 등)을 절대 포함하지 마십시오. 오직 수식과 논리적 풀이 과정만 담으십시오.
 - 모든 수식은 반드시 '\\\\( ... \\\\)' 형태로 감싸세요. (백슬래시 2개)
 - 유형 안에 삽화나 도형이 있다면 'figure_bounds'([ymin, xmin, ymax, xmax])를 0~1000 좌표계로 추출하세요. 없으면 [0,0,0,0].
 - 이미지에 포함된 "답:", "정답:", "풀이:", "해설:"로 시작하는 텍스트는 교사용 정보이므로 **절대 'body'나 'content'에 포함하지 마라.**
 - 만약 문제 바로 아래에 정답이 적혀 있다면, 해당 정답은 'answers' 배열에만 넣고 'body'에서는 삭제하라.
 
-**유형별 데이터 구조 및 분할 규칙:**
+### STEP 5: 데이터 구조 및 분할 규칙:
 
 1. **[단독형 (together.select)]**: 
    - 1개의 객체 안에서 모두 처리하라.
@@ -188,7 +202,10 @@ STEP 1의 결과에 따라 한 치의 예외도 없이 아래 규칙에 따라 '
 - **[본문 빈칸 유지 - 매우 중요!]** 이미지 원본에서 네모 박스, 빈칸, 밑줄 등으로 비워져 있는 부분은 \`content.body\` 텍스트 작성 시 절대 정답으로 계산해서 채워 넣지 마라! 반드시 원본 위치 그대로 **'□'** 기호를 사용하여 빈칸으로 남겨두어라.
 2. **[복합형 (together.self) - 절대 분할 규칙]**: 
    - '함께 풀기'와 '스스로 풀기'는 **반드시 서로 다른 2개의 독립적인 객체(section)**로 분할하여 배열에 담아라. 절대 1개의 객체로 합치지 마라!
-   - **중요:** 'blank' 파트의 'options' 배열에는 오답이 필요 없다! 반드시 **[ "실제 계산된 정답" ]** 1개의 요소만 배열에 담아라. (단순 확인 및 주관식 입력이므로)
+    - **중요:** 'blank' 파트의 'options' 배열에는 오답이 필요 없다! 반드시 **[ "실제 계산된 정답" ]** 1개의 요소만 배열에 담아라. (단순 확인 및 주관식 입력이므로)
+    - **[빈칸 동기화 규칙 (매우 중요!!)]**: 
+      1. '함께 풀기' 섹션도 '스스로 풀기'의 밑줄 위치와 **논리적으로 동일한 지점**에 반드시 '□' 기호를 사용하여 빈칸을 생성하라.
+      2. 이미지 상의 '함께 풀기'가 완성된 풀이 형태더라도, '스스로 풀기'와 대조하여 동일한 계층/위치에 '□' 빈칸을 강제로 만들어야 함. (예상 정답은 answers 배열에 넣을 것)
 
 3. **question.mathinput**:
    - 'subQuestions' 배열을 사용하세요.
@@ -264,6 +281,24 @@ STEP 1의 결과에 따라 한 치의 예외도 없이 아래 규칙에 따라 '
       "explanation": ["(1) 인수분해하여 풉니다.", "(2) 인수분해하여 풉니다."],
       "figure_bounds": [0,0,0,0],
       "figure_alt": ""
+    },
+    {
+      "type": "이미지형",
+      "typeKey": "question.image",
+      "subtype": "이미지형",
+      "strategy": {
+        "name": "images_v1",
+        "options": { "inputKind": "math" }
+      },
+      "content": {
+        "title": "문제 2",
+        "instruction": "오른쪽 그림과 같은 삼각형의 넓이를 구하시오.",
+        "body": ""
+      },
+      "answers": ["24"],
+      "explanation": ["삼각형의 넓이는 (밑변 x 높이) / 2 이므로 (8 x 6) / 2 = 24 입니다."],
+      "figure_bounds": [150, 400, 450, 800],
+      "figure_alt": "밑변이 8, 높이가 6인 삼각형 그림"
     }
   ]
 }
@@ -352,7 +387,7 @@ const parseTextToLines = (text, answers = []) => {
     });
 };
 
-const generateLogicText = (type, subtype, answers) => {
+const generateLogicText = (typeKey, type, subtype, answers) => {
     const hasAnswer = answers && answers.length > 0;
     const answerSection = hasAnswer ? `[정답 설정]\n- 정답: ${answers.join(', ')}\n\n` : '';
 
@@ -377,7 +412,12 @@ const generateLogicText = (type, subtype, answers) => {
         return answerSection + `[활동형]\n1. [저장] 버튼 클릭 시 입력값 저장.\n2. 정오 판별 없음.\n3. 빈칸 시 "내용을 입력하세요" 알럿.`;
     }
 
-    // 5. 일반 문제 (수식 입력형)
+    // 5. 이미지형 문제 (question.image)
+    if (typeKey === TYPE_KEYS.QUESTION_IMAGE) {
+        return answerSection + `[이미지형 문제]\n1. 삽화(Figure)와 발문이 조화된 레이아웃 구성.\n2. 수식 입력창을 통해 정답 입력 및 정오 판별.\n3. 우측/하단 삽화 영역을 반드시 확인하여 문제 풀이 유도.`;
+    }
+
+    // 6. 일반 문제 (수식 입력형)
     return answerSection + `[기능 로직]\n1. 빈칸 클릭 시 수식 입력기 호출.\n2. [확인] 클릭 시 정오답 판별.\n3. 정답 시: 파란색(#0000FF) 변경 + 정답 알럿.\n4. 오답 시: 재도전 알럿 + 오답 붉은색 노출.\n5. 버튼 토글: 확인 -> 풀이/다시하기.`;
 };
 
@@ -417,6 +457,28 @@ const buildDraftInputConfig = ({
         };
     }
 
+    // [NEW] 2.5 Image-based Type
+    if (typeKey === TYPE_KEYS.QUESTION_IMAGE) {
+        return {
+            typeKey: TYPE_KEYS.QUESTION_IMAGE,
+            baseTemplateTypeKey: TYPE_KEYS.QUESTION_IMAGE,
+            manifest: {
+                rowTemplate: ".flex-row.ai-s.jc-sb",
+            },
+            strategy: {
+                name: "images_v1",
+                options: {
+                    inputKind: "math",
+                    hasImage: true,
+                    headerUrl,
+                    contentImageUrl,
+                    figure_bounds,
+                    figure_alt
+                }
+            }
+        };
+    }
+
     // 3. Together Type or Standard Input
     const finalTypeKey = typeKey || (isTogether ? "together.custom" : "input.custom");
 
@@ -434,6 +496,7 @@ const buildDraftInputConfig = ({
                 headerUrl,
                 contentImageUrl,
                 figure_bounds,
+                figureBounds: figure_bounds,
                 figure_alt
             }
         }
@@ -483,6 +546,7 @@ const App = () => {
 
     const [removePagination, setRemovePagination] = useState(true);
     const [zoomedImage, setZoomedImage] = useState(null);
+    const [showDetectionOverlay, setShowDetectionOverlay] = useState(false); // [NEW] AI 탐지 영역 표시 여부
 
     // Derived Logic
     const activeData = buildPages[activePageIndex]?.data;
@@ -534,7 +598,14 @@ const App = () => {
         return () => unsubSnapshot();
     }, [user, db, appId]); // user가 변경될 때마다(로그인 성공 시) 실행
 
-
+    console.table(
+        templates.map(t => ({
+            id: t.id,
+            name: t.name,
+            typeKey: t.typeKey,
+            baseTemplateTypeKey: t.baseTemplateTypeKey
+        }))
+    );
 
 
     // ================================
@@ -565,71 +636,46 @@ const App = () => {
         const typeStr = activeData.type;
         if (typeStr.includes("함께 풀기 + 스스로 풀기")) detectedTypeKey = TYPE_KEYS.TOGETHER_SELF;
         else if (typeStr.includes("함께 풀기")) detectedTypeKey = TYPE_KEYS.TOGETHER_SELECT;
+        else if (typeStr.includes("이미지형")) detectedTypeKey = TYPE_KEYS.QUESTION_IMAGE;
         else if (typeStr.includes("문제") || typeStr.includes("예제")) detectedTypeKey = TYPE_KEYS.QUESTION_MATHINPUT;
     }
 
-    // 3️⃣ 기존 템플릿 존재 여부
-    const hasExactTemplate = detectedTypeKey
-        ? templates.some(t => t.typeKey === detectedTypeKey)
-        : false;
+    // 3️⃣ [NEW] Header Mapping for Exact Match
+    const TYPE_MAPPING = {
+        [TYPE_KEYS.QUESTION_MATHINPUT]: ["문제", "예제", "따라 하기", "수식 입력형"],
+        [TYPE_KEYS.QUESTION_IMAGE]: ["이미지형"],
+        [TYPE_KEYS.TOGETHER_SELECT]: ["함께 풀기"],
+        [TYPE_KEYS.TOGETHER_SELF]: ["함께 풀기 + 스스로 풀기"]
+    };
 
-    // 4️⃣ Detection Status 결정
+    // 4️⃣ 기존 템플릿 존재 여부 및 상세 판별
+    const matchingDetectedTemplates = templates.filter(t => t.typeKey === detectedTypeKey);
+    const hasExistingTemplate = matchingDetectedTemplates.length > 0;
+
     let detectionStatus = "UNKNOWN"; // EXACT | SIMILAR | NEW
-
     if (!detectedFamily) {
         detectionStatus = "UNKNOWN";
-    } else if (hasExactTemplate) {
-        detectionStatus = "EXACT";
-    } else if (detectedTypeKey === TYPE_KEYS.TOGETHER_SELF) {
-        detectionStatus = "SIMILAR"; // together_self_v1 전략으로 생성 가능
-    } else if (detectedFamily === "input") {
-        detectionStatus = "SIMILAR"; // input_v1 전략으로 생성 가능
+    } else if (hasExistingTemplate) {
+        // [MODIFIED] Check if header also matches for "EXACT" status
+        const headerType = activeData?.type || "";
+        const allowedHeaders = TYPE_MAPPING[detectedTypeKey] || [];
+        const isHeaderMatch = allowedHeaders.some(h => headerType.includes(h));
+
+        if (isHeaderMatch) {
+            detectionStatus = "EXACT";
+        } else {
+            detectionStatus = "SIMILAR";
+        }
+    } else if (detectedTypeKey === TYPE_KEYS.TOGETHER_SELF || detectedFamily === "input") {
+        detectionStatus = "SIMILAR";
     } else {
         detectionStatus = "NEW";
     }
 
 
     // 2. Filter Templates: If manual type selected, use it. Else if detected, use matching. Else show all?
-    // User said: "Advanced option can select existing". 
-    // Let's filter by selectedTypeKey if present.
     const filteredTemplates = templates.filter(t => !selectedTypeKey || t.typeKey === selectedTypeKey);
-
-    // 3. Status Logic
-    // EXISTING: Found templates matching the DETECTED type (regardless of selection?) -> Auto-match
-    // DRAFT: No matching templates for DETECTED type, but structure allows Input V1
-
-    // Find templates that match the *detected* type
-    const matchingDetectedTemplates = templates.filter(t => t.typeKey === detectedTypeKey);
-    const hasExistingTemplate = matchingDetectedTemplates.length > 0;
-
     const isInputType = detectedFamily === "input" || detectedFamily === "together";
-
-    // [Strict Detection Logic]
-
-    // Header Mapping (Title Type -> Template TypeKey)
-    const TYPE_MAPPING = {
-        [TYPE_KEYS.QUESTION_MATHINPUT]: ["문제", "예제", "따라 하기"], // Exact header matches
-        "together.select": ["함께 풀기"],
-        "together.self": ["함께 풀기 + 스스로 풀기"]
-    };
-
-    if (detectedTypeKey) {
-        // [New Logic using activeData.type if available]
-        const headerType = activeData?.type || "";
-        const allowedHeaders = TYPE_MAPPING[detectedTypeKey] || [];
-        const isHeaderMatch = allowedHeaders.some(h => headerType.includes(h));
-
-        if (hasExistingTemplate && isHeaderMatch) {
-            detectionStatus = "EXACT";
-        } else if (hasExistingTemplate && detectedTypeKey === TYPE_KEYS.QUESTION_MATHINPUT) {
-            // Structure OK, Key OK, but Header Mismatch -> Similar -> Draft
-            detectionStatus = "SIMILAR";
-        } else if (isInputType) {
-            detectionStatus = "SIMILAR"; // Draft mode for input
-        } else {
-            detectionStatus = "NEW";
-        }
-    }
 
     function renderTypeEditor(currentData) {
         const typeKey = currentData?.typeKey;
@@ -658,6 +704,10 @@ const App = () => {
                     onClickLabelZip={onClickLabelZip}
                 />
             );
+        }
+
+        if (typeKey === TYPE_KEYS.QUESTION_IMAGE) {
+            return <QuestionImageEditor currentData={currentData} onChange={updateCurrentPageData} />;
         }
 
         return <GenericFallbackEditor currentData={currentData} onChange={updateCurrentPageData} />;
@@ -708,6 +758,7 @@ const App = () => {
             let baseTypeKey = TYPE_KEYS.QUESTION_MATHINPUT;
             if (isTogetherSelf) baseTypeKey = TYPE_KEYS.TOGETHER_SELF;
             else if (isTogether) baseTypeKey = TYPE_KEYS.TOGETHER_SELECT;
+            else if (currentType === TYPE_KEYS.QUESTION_IMAGE) baseTypeKey = TYPE_KEYS.QUESTION_IMAGE;
 
             const fallback = templates.find(t => t.typeKey === baseTypeKey);
             finalTemplateId = fallback?.id;
@@ -781,10 +832,18 @@ const App = () => {
                 const newLines = (page.data.lines || []).map(line => ({
                     ...line,
                     parts: (line.parts || []).map(part => {
-                        // 스스로 풀기 라인이면 절대 텍스트로 변환하지 않음
                         const isSelfLine = line.isSelfLine || isSelfPage;
 
+                        // [Together] labelEnabled === false 이면 텍스트로 변환
                         if (part.type === 'blank' && part.labelEnabled === false && !isSelfLine) {
+                            const options = Array.isArray(part.options) ? part.options : [];
+                            const idx = (parseInt(part.correctIndex, 10) || 1) - 1;
+                            const answer = options[idx] ?? "";
+                            return { ...part, type: 'text', content: answer };
+                        }
+
+                        // [Self] inputEnabled === false 이면 텍스트로 변환
+                        if (part.type === 'blank' && part.inputEnabled === false && isSelfLine) {
                             const options = Array.isArray(part.options) ? part.options : [];
                             const idx = (parseInt(part.correctIndex, 10) || 1) - 1;
                             const answer = options[idx] ?? "";
@@ -939,14 +998,16 @@ const App = () => {
                 const currentBlankIdx = blankIdx;
                 const answer = answers[currentBlankIdx - 1] || "";
 
+                const isTogetherTarget = isTogether && (typeKey === TYPE_KEYS.TOGETHER_SELECT || typeKey === TYPE_KEYS.TOGETHER_SELF);
+
                 return (
                     <span key={i} className="inline-flex items-center align-middle mx-1 relative">
                         <span
                             className={`inline-flex items-center justify-center rounded-md border-2 transition-all relative ${isSelfStudy
                                 ? 'w-16 h-10 bg-white border-slate-300 shadow-sm'
-                                : isTogether
+                                : isTogetherTarget
                                     ? 'w-10 h-10 bg-[#00bcf1] border-[#00bcf1] shadow-[0_4px_0_0_#0097c3]'
-                                    : 'w-10 h-10 bg-[#00bcf1] border-[#00bcf1]'
+                                    : 'w-10 h-10 bg-white border-slate-300'
                                 }`}
                         >
 
@@ -1108,6 +1169,7 @@ const App = () => {
                     let body = (contentObj.body || "").replace(/(답|정답|풀이|해설)\s*[:\.]\s*.*(\n|$)/g, "").trim();
                     let finalAnswers = [...(sec.answers || [])];
 
+                    // [복구] AI가 빈칸 생성에 실패한 경우를 대비한 최소한의 안전 장치
                     if (detectedTypeKey === TYPE_KEYS.TOGETHER_SELF && !body.includes('□') && !body.includes('_') && body.length > 0) {
                         const extracted = [];
                         body = body.replace(/=\s*([^=\n]+?)(?=\s*\\\)|\s*\n|\s*=|$)/g, (match, p1) => {
@@ -1206,7 +1268,7 @@ const App = () => {
                                         type: 'blank',
                                         options: finalOptions,
                                         correctIndex: 1,
-                                        labelEnabled: false,
+                                        labelEnabled: false, // [FIX] 기본값 OFF로 원복 (사용자 요청)
                                         isLabelTarget: true,
                                         label: "",
                                         explanation: sq.explanation || ""
@@ -1246,7 +1308,7 @@ const App = () => {
                                 content: finalInstruction, guide: guide,
                                 body: chunk.map(q => q.passage).join('\n'),
                                 answers: chunk.flatMap(q => Array.isArray(q.answer) ? q.answer : [q.answer]),
-                                description: [{ text: generateLogicText(type, sec.subtype, chunk.flatMap(q => Array.isArray(q.answer) ? q.answer : [q.answer])) }],
+                                description: [{ text: generateLogicText(detectedTypeKey, type, sec.subtype, chunk.flatMap(q => Array.isArray(q.answer) ? q.answer : [q.answer])) }],
                                 subQuestions: chunk, lines: chunkLines,
                                 isSelfStudy: isThisSecSelf, // [NEW]
                                 figure_bounds: sec.figure_bounds || [0, 0, 0, 0],
@@ -1261,7 +1323,7 @@ const App = () => {
                             title, mainQuestion: title,
                             content: finalInstruction, guide: guide,
                             body: body, answers: finalAnswers,
-                            description: [{ text: generateLogicText(type, sec.subtype, finalAnswers) }],
+                            description: [{ text: generateLogicText(detectedTypeKey, type, sec.subtype, finalAnswers) }],
                             subQuestions: finalSubQs, lines: finalLines,
                             isSelfStudy: isThisSecSelf, // [NEW]
                             figure_bounds: sec.figure_bounds || [0, 0, 0, 0],
@@ -1704,7 +1766,7 @@ const App = () => {
                                                 }}
                                                 className="p-3 bg-white/90 backdrop-blur-md text-amber-500 rounded-full hover:bg-amber-50 transition-colors shadow-sm"
                                             >
-                                                <checkCircle2 size={20} /> ★
+                                                <CheckCircle2 size={20} /> ★
                                             </button>
                                             <button onClick={() => setAnalysisImages(prev => prev.filter(i => i.id !== img.id))} className="p-3 bg-white/90 backdrop-blur-md text-rose-500 rounded-full hover:bg-rose-50 transition-colors shadow-sm"><Trash2 size={20} /></button>
                                         </div>
@@ -1770,6 +1832,8 @@ const App = () => {
                                                         else titleImg = ASSETS.TITLES['함께 풀기']; // 기본값은 함께 풀기
                                                     } else if (page.typeKey === 'together.select' || page.type === '함께 풀기') {
                                                         titleImg = ASSETS.TITLES['함께 풀기'];
+                                                    } else if (page.typeKey === 'question.image' || page.type === '이미지형') {
+                                                        titleImg = ASSETS.TITLES['문제'];
                                                     } else if (page.typeKey === 'question.mathinput' || page.type === '문제') {
                                                         titleImg = ASSETS.TITLES['문제'];
                                                     }
@@ -1785,6 +1849,35 @@ const App = () => {
                                                     </h5>
 
                                                     <div className="space-y-6 mt-8 pl-2 border-l-2 border-slate-100">
+                                                        {/* --- 스토리보드 탭: 이미지 영역 (읽기 전용) --- */}
+                                                        {page.contentImageUrl && (page.typeKey === 'question.image' || page.type?.includes('이미지') || (page.figure_bounds && page.figure_bounds.some(v => v !== 0))) && (
+                                                            <div className="mb-10 space-y-4 pr-6">
+
+                                                                {page.figure_bounds && page.figure_bounds.some(v => v !== 0) ? (
+                                                                    <div className="flex flex-col items-center">
+                                                                        <span className="bg-rose-50 text-rose-500 text-[10px] font-black px-3 py-1 rounded-full mb-2 border border-rose-100">
+                                                                            ✨ AI 추출 삽화
+                                                                        </span>
+                                                                        <CroppedImagePreview bounds={page.figure_bounds} imageUrl={page.contentImageUrl} />
+                                                                    </div>
+                                                                ) : (
+                                                                    < div className="relative rounded-[2.5rem] border-4 border-slate-100 shadow-sm bg-slate-50 flex justify-center py-4">
+                                                                        <img
+                                                                            src={page.contentImageUrl}
+                                                                            className="max-h-[300px] w-auto object-contain pointer-events-none select-none rounded-lg opacity-50"
+                                                                            alt="Original Fallback"
+                                                                        />
+                                                                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                                                            <span className="bg-slate-800 text-white text-xs font-bold px-4 py-2 rounded-full shadow-lg">
+                                                                                AI가 삽화 영역을 찾지 못했습니다. 빌더 탭에서 지정해주세요.
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+
+                                                            </div>
+                                                        )}
+
                                                         {/* 1. 질문 리스트 및 Lines 렌더링 */}
                                                         {(page.typeKey?.startsWith('together') || page.type?.includes('함께')) && page.lines && page.lines.length > 0 ? (
                                                             <div className="space-y-4 pt-4">
@@ -1845,6 +1938,8 @@ const App = () => {
                                                                             </div>
                                                                         )}
                                                                     </div>
+                                                                    {/* (그 외 일반 렌더링은 위에서 처리한 이미지 영역을 공유함) */}
+
 
                                                                     {(page.typeKey === 'question.mathinput' || page.type === '문제') && (
                                                                         <div className="mt-4 flex justify-end">
@@ -1908,7 +2003,8 @@ const App = () => {
                                                         const detectedTypeKey = page.typeKey || (
                                                             page.type.includes("함께 풀기 + 스스로 풀기") ? TYPE_KEYS.TOGETHER_SELF :
                                                                 page.type.includes("함께 풀기") ? TYPE_KEYS.TOGETHER_SELECT :
-                                                                    TYPE_KEYS.QUESTION_MATHINPUT
+                                                                    page.type.includes("이미지형") ? TYPE_KEYS.QUESTION_IMAGE :
+                                                                        TYPE_KEYS.QUESTION_MATHINPUT
                                                         );
 
                                                         const isSelfStudy = (page.type || "").includes("스스로") || (page.title || "").includes("스스로");
@@ -1933,7 +2029,12 @@ const App = () => {
                                                             guideText: page.guide,
                                                             subQuestions: page.subQuestions || [],
                                                             lines: page.lines || [],
-                                                            answers: page.answers || [] // [FIX] Ensure answers are mapped for preview
+                                                            answers: page.answers || [], // [FIX] Ensure answers are mapped for preview
+                                                            // [NEW] question.image 에디터용 단수형 필드 매핑
+                                                            answer: Array.isArray(page.answers) ? (page.answers[0] || "") : (page.answers || ""),
+                                                            explanation: Array.isArray(page.explanation) ? (page.explanation[0] || "") : (page.explanation || page.description?.[0]?.text || ""),
+                                                            figure_bounds: page.figure_bounds || [0, 0, 0, 0],
+                                                            figure_alt: page.figure_alt || "",
                                                         };
 
                                                         // For together types, parse body into lines/parts automatically
@@ -1992,12 +2093,13 @@ const App = () => {
                                                             const typeMap = {
                                                                 '함께 풀기': TYPE_KEYS.TOGETHER_SELECT,
                                                                 '함께 풀기 + 스스로 풀기': TYPE_KEYS.TOGETHER_SELF,
+                                                                '이미지형': TYPE_KEYS.QUESTION_IMAGE,
                                                                 '문제': TYPE_KEYS.QUESTION_MATHINPUT,
                                                                 '수식 입력형': TYPE_KEYS.QUESTION_MATHINPUT,
                                                                 '스스로 풀기': TYPE_KEYS.QUESTION_MATHINPUT,
                                                                 '연습 하기': TYPE_KEYS.QUESTION_MATHINPUT
                                                             };
-                                                            setSelectedTypeKey(typeMap[page.type] || TYPE_KEYS.QUESTION_MATHINPUT);
+                                                            setSelectedTypeKey(typeMap[page.type] || TYPE_KEYS.QUESTION_IMAGE || TYPE_KEYS.QUESTION_MATHINPUT);
                                                         }
 
                                                     } catch (e) {
@@ -2111,11 +2213,14 @@ const App = () => {
                                                                                             if (part.type === 'blank') {
                                                                                                 globalBlankCounter++;
                                                                                                 const isSelf = title.includes("스스로");
-                                                                                                const showLabel = isSelf || (part.labelEnabled !== false); // 기본값 true
                                                                                                 const ans = (part.options && part.options[0]) || "";
 
-                                                                                                if (!showLabel) {
-                                                                                                    // 라벨 노출 꺼져있으면 정답 정답 직접 렌더링
+                                                                                                // [Logic] 스스로 풀기는 inputEnabled, 함께 풀기는 labelEnabled 확인
+                                                                                                const isHidden = isSelf
+                                                                                                    ? (part.inputEnabled === false)
+                                                                                                    : (part.labelEnabled === false);
+
+                                                                                                if (isHidden) {
                                                                                                     return <span key={pi} className="mx-1 font-bold text-blue-600">{renderMathToHTML(ans, typeKey, title)}</span>;
                                                                                                 }
 
@@ -2155,6 +2260,10 @@ const App = () => {
                                                                     <p className="text-xs text-slate-400 font-medium leading-relaxed">
                                                                         {renderMathToHTML(activeData.guideText, activeData.typeKey, activeData.title)}
                                                                     </p>
+                                                                    {/* [추가] 여기에 크롭된 결과물 미리보기 주입 */}
+                                                                    <CroppedImagePreview bounds={activeData.figure_bounds} imageUrl={buildPages[activePageIndex]?.image} />
+
+                                                                    <div className="space-y-4 pt-4 border-t border-slate-100"></div>
                                                                     <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
                                                                         {(activeData.subQuestions || []).slice(0, 4).map((sq, i) => (
                                                                             <div key={i} className="flex gap-2 items-start opacity-60">
@@ -2221,23 +2330,98 @@ const App = () => {
                                     </details> */}
 
                                     {buildPages[activePageIndex]?.image && (
-                                        <div
-                                            className="bg-white mt-2 p-4 rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col gap-3 cursor-zoom-in hover:border-indigo-200 transition-all group scale-100 hover:scale-[1.02] active:scale-95"
-                                            onClick={() => setZoomedImage(buildPages[activePageIndex].image)}
-                                        >
+                                        <div className="bg-white mt-2 p-4 rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col gap-3 transition-all group">
                                             <div className="flex items-center justify-between px-2">
                                                 <div className="flex items-center gap-2 text-slate-400">
-                                                    <ImageIcon size={14} />
-                                                    <span className="text-[10px] font-black uppercase tracking-wider">교과서 이미지</span>
+                                                    <Crop size={14} />
+                                                    <span className="text-[10px] font-black uppercase tracking-wider">삽화 영역 편집 (크롭)</span>
                                                 </div>
-                                                <div className="text-[10px] font-bold text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity">Click to zoom</div>
+                                                <div className="flex items-center gap-4">
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); setZoomedImage(buildPages[activePageIndex].image); }}
+                                                        className="px-3 py-1 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-[10px] font-black flex items-center gap-1 transition-colors"
+                                                    >
+                                                        <Maximize2 size={10} /> 확대보기
+                                                    </button>
+                                                    <div className="text-[10px] font-bold text-indigo-500 animate-pulse">마우스로 드래그하여 영역 설정</div>
+                                                </div>
                                             </div>
-                                            <div className="bg-slate-50 rounded-[1.5rem] overflow-hidden aspect-video border border-slate-100/50">
-                                                <img
-                                                    src={buildPages[activePageIndex].image}
-                                                    className="w-full h-full object-contain"
-                                                    alt="Source"
-                                                />
+                                            {/* 겉 포장지 */}
+                                            <div className="bg-slate-50 rounded-[1.5rem] border border-slate-100/50 flex justify-center py-4">
+                                                {/* 알맹이 */}
+                                                <div
+                                                    className="relative cursor-crosshair group/fig shadow-sm"
+                                                    style={{ display: 'inline-block', lineHeight: 0 }}
+                                                    onMouseDown={(e) => {
+                                                        const target = e.currentTarget;
+                                                        const rect = target.getBoundingClientRect();
+                                                        const x = ((e.clientX - rect.left) / rect.width) * 1000;
+                                                        const y = ((e.clientY - rect.top) / rect.height) * 1000;
+
+                                                        const updateBounds = (moveEvent) => {
+                                                            const moveRect = target.getBoundingClientRect();
+                                                            const moveX = Math.max(0, Math.min(1000, ((moveEvent.clientX - moveRect.left) / moveRect.width) * 1000));
+                                                            const moveY = Math.max(0, Math.min(1000, ((moveEvent.clientY - moveRect.top) / moveRect.height) * 1000));
+
+                                                            const newBounds = [
+                                                                Math.max(0, Math.min(y, moveY)),
+                                                                Math.max(0, Math.min(x, moveX)),
+                                                                Math.min(1000, Math.max(y, moveY)),
+                                                                Math.min(1000, Math.max(x, moveX))
+                                                            ];
+
+                                                            const newPages = [...buildPages];
+                                                            newPages[activePageIndex].data = {
+                                                                ...newPages[activePageIndex].data,
+                                                                figure_bounds: newBounds
+                                                            };
+                                                            setBuildPages(newPages);
+                                                        };
+
+                                                        const stopUpdate = () => {
+                                                            window.removeEventListener('mousemove', updateBounds);
+                                                            window.removeEventListener('mouseup', stopUpdate);
+                                                        };
+
+                                                        window.addEventListener('mousemove', updateBounds);
+                                                        window.addEventListener('mouseup', stopUpdate);
+                                                    }}
+                                                >
+                                                    <img
+                                                        src={buildPages[activePageIndex].image}
+                                                        className="w-full h-full object-contain pointer-events-none select-none"
+                                                        alt="Source"
+                                                    />
+                                                    {activeData?.figure_bounds && activeData.figure_bounds.some(v => v !== 0) && (
+                                                        <div
+                                                            className="absolute border-2 border-rose-500 bg-rose-500/20 shadow-[0_0_20px_rgba(244,63,94,0.4)] transition-all duration-75"
+                                                            style={{
+                                                                top: `${activeData.figure_bounds[0] / 10}%`,
+                                                                left: `${activeData.figure_bounds[1] / 10}%`,
+                                                                width: `${(activeData.figure_bounds[3] - activeData.figure_bounds[1]) / 10}%`,
+                                                                height: `${(activeData.figure_bounds[2] - activeData.figure_bounds[0]) / 10}%`,
+                                                            }}
+                                                        >
+                                                            <div className="absolute -top-6 left-0 bg-rose-500 text-white text-[9px] font-black px-2 py-1 rounded shadow-md whitespace-nowrap">
+                                                                CROP AREA
+                                                            </div>
+                                                            <button
+                                                                className="absolute -top-3 -right-3 w-6 h-6 bg-rose-600 text-white rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform text-xs"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    const newPages = [...buildPages];
+                                                                    newPages[activePageIndex].data = {
+                                                                        ...newPages[activePageIndex].data,
+                                                                        figure_bounds: [0, 0, 0, 0]
+                                                                    };
+                                                                    setBuildPages(newPages);
+                                                                }}
+                                                            >
+                                                                ×
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
                                     )}
@@ -2294,7 +2478,7 @@ const App = () => {
                         </div>
                     )}
 
-                    {/* {activeTab === 'library' && (
+                    {activeTab === 'library' && (
                         <div className="grid grid-cols-2 gap-12 animate-in fade-in duration-500 pb-20">
                             <div className="bg-white p-12 rounded-[3.5rem] border border-slate-200 shadow-sm relative overflow-hidden group flex flex-col">
                                 <h3 className="text-3xl font-black mb-8 text-slate-800 tracking-tight">Add New Template</h3>
@@ -2333,9 +2517,9 @@ const App = () => {
                                 </div>
                             </div>
                         </div>
-                    )} */}
+                    )}
                 </div>
-            </main>
+            </main >
 
             <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
@@ -2345,9 +2529,60 @@ const App = () => {
         @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .animate-in { animation: fade-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
       `}</style>
-        </div>
+        </div >
     );
 };
+
+// --- App.js 맨 아래쪽 컴포넌트 선언부 ---
+
+function CroppedImagePreview({ bounds, imageUrl }) {
+    if (!bounds || !bounds.some(v => v !== 0) || !imageUrl) return null;
+    const [ymin, xmin, ymax, xmax] = bounds;
+    const cropWidth = xmax - xmin;
+    const cropHeight = ymax - ymin;
+    if (cropWidth <= 0 || cropHeight <= 0) return null;
+
+    // 투명한 SVG를 이용해 컨테이너의 비율과 최대 크기를 완벽하게 잡아줍니다.
+    const svgString = `<svg xmlns="http://www.w3.org/2000/svg" width="${cropWidth}" height="${cropHeight}"></svg>`;
+    const dummySvg = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgString)}`;
+
+    return (
+        <div className="my-5 border-2 border-slate-200 rounded-[1.5rem] shadow-inner mx-auto bg-slate-100 pointer-events-none flex items-center justify-center p-2 h-[260px] w-4/5 overflow-hidden">
+            <div style={{
+                position: 'relative',
+                maxHeight: '100%',
+                maxWidth: '100%',
+                borderRadius: '1rem',
+                overflow: 'hidden',
+                backgroundColor: '#fff',
+                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                display: 'flex'
+            }}>
+                {/* 1. 안 보이는 스페이서가 260px 안에서 비율을 유지하며 공간을 확보함 */}
+                <img
+                    src={dummySvg}
+                    style={{ display: 'block', maxWidth: '100%', maxHeight: '240px', opacity: 0 }}
+                    alt="spacer"
+                />
+
+                {/* 2. 확보된 공간 위에 크롭된 이미지를 정확한 비율로 얹음 */}
+                <img
+                    src={imageUrl}
+                    style={{
+                        position: 'absolute',
+                        top: `-${(ymin / cropHeight) * 100}%`,
+                        left: `-${(xmin / cropWidth) * 100}%`,
+                        width: `${(1000 / cropWidth) * 100}%`,
+                        height: `${(1000 / cropHeight) * 100}%`,
+                        maxWidth: 'none',
+                        maxHeight: 'none'
+                    }}
+                    alt="Cropped Preview"
+                />
+            </div>
+        </div>
+    );
+}
 
 export default App;
 
@@ -2454,59 +2689,110 @@ function TogetherSelectEditor({ currentData, onChange }) {
     };
 
     const updateOption = (li, pi, part, optIdx, value) => {
-        const nextOptions = [...(part.options || ["", "", ""])];
+        const nextOptions = [...(part.options || [""])];
         nextOptions[optIdx] = value;
         patchPart(li, pi, { ...part, options: nextOptions });
+    };
+
+    const addOption = (li, pi, part) => {
+        const nextOptions = [...(part.options || ["", "", ""]), ""];
+        patchPart(li, pi, { ...part, options: nextOptions });
+    };
+
+    const removeOption = (li, pi, part) => {
+        const currentOptions = part.options || [""];
+        if (currentOptions.length <= 1) return;
+        const nextOptions = currentOptions.slice(0, -1);
+        patchPart(li, pi, { ...part, options: nextOptions });
+    };
+
+    const toggleSelectionMode = (li, pi, part) => {
+        const nextMode = part.selectionEnabled === false ? true : false;
+        patchPart(li, pi, { ...part, selectionEnabled: nextMode });
     };
 
     return (
         <div className="space-y-8">
             <div className="p-8 bg-blue-50/60 border border-blue-200 rounded-[2.5rem] space-y-5">
-                <div>
-                    <div className="text-xs font-black uppercase tracking-widest text-blue-600">함께 풀기(선택형)</div>
-                    <div className="text-sm font-bold text-slate-600 mt-1">각 빈칸의 정답과 오답 선택지를 설정하세요.</div>
+                <div className="flex justify-between items-center">
+                    <div>
+                        <div className="text-xs font-black uppercase tracking-widest text-blue-600">함께 풀기(선택형)</div>
+                        <div className="text-sm font-bold text-slate-600 mt-1">각 빈칸의 정답과 오답 선택지를 설정하세요. 선택지 순서는 랜덤 배치되며, OFF를 누르면 선택형 문제가 생성되지 않습니다.</div>
+                    </div>
                 </div>
 
                 <div className="space-y-4">
                     {blanks.map(({ li, pi, part }, idx) => (
                         <div key={`${li}-${pi}`} className="bg-white rounded-2xl border border-blue-100 p-6 space-y-4 shadow-sm">
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-lg bg-blue-500 text-white font-black flex items-center justify-center text-xs">
-                                    {idx + 1}
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-lg bg-blue-500 text-white font-black flex items-center justify-center text-xs">
+                                        {idx + 1}
+                                    </div>
+                                    <span className="font-bold text-slate-700">빈칸 {idx + 1}번 설정</span>
                                 </div>
-                                <span className="font-bold text-slate-700">빈칸 {idx + 1}번 선택지 설정</span>
+                                <div className="flex items-center gap-4">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">선택형 문제로 생성</span>
+                                        <button
+                                            onClick={() => toggleSelectionMode(li, pi, part)}
+                                            className={`px-4 py-1.5 rounded-xl font-black text-[10px] transition-all ${part.selectionEnabled !== false ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
+                                        >
+                                            {part.selectionEnabled !== false ? "ON" : "OFF"}
+                                        </button>
+                                    </div>
+                                    {part.selectionEnabled !== false && (
+                                        <div className="flex items-center bg-slate-100 rounded-xl p-1 gap-1">
+                                            <button
+                                                onClick={() => removeOption(li, pi, part)}
+                                                className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white text-slate-600 transition-all font-bold"
+                                            >
+                                                -
+                                            </button>
+                                            <span className="px-2 text-[10px] font-black text-slate-500 uppercase">{(part.options || []).length}개</span>
+                                            <button
+                                                onClick={() => addOption(li, pi, part)}
+                                                className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white text-slate-600 transition-all font-bold"
+                                            >
+                                                +
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
 
-                            <div className="grid grid-cols-3 gap-4">
+                            {part.selectionEnabled !== false ? (
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    {(part.options || ["", "", ""]).map((opt, oIdx) => (
+                                        <div key={oIdx} className="space-y-2">
+                                            <label className={`text-[10px] font-black uppercase tracking-widest block ${oIdx === 0 ? "text-emerald-500" : "text-rose-400"}`}>
+                                                {oIdx === 0 ? "정답" : `오답 ${oIdx}`}
+                                            </label>
+                                            <input
+                                                className={`w-full p-3 rounded-xl border font-bold text-sm outline-none transition-all ${oIdx === 0
+                                                    ? "border-emerald-100 bg-emerald-50/30 focus:ring-2 focus:ring-emerald-200"
+                                                    : "border-rose-100 bg-rose-50/30 focus:ring-2 focus:ring-rose-200"
+                                                    }`}
+                                                value={opt}
+                                                onChange={(e) => updateOption(li, pi, part, oIdx, e.target.value)}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-emerald-500 uppercase tracking-widest block">정답</label>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">텍스트로 노출될 정답</label>
                                     <input
-                                        className="w-full p-3 rounded-xl border border-emerald-100 bg-emerald-50/30 font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-200"
+                                        className="w-full p-3 rounded-xl border border-slate-100 bg-slate-50/50 font-bold text-sm outline-none focus:ring-2 focus:ring-blue-100 text-slate-600"
                                         value={part.options?.[0] || ""}
                                         onChange={(e) => updateOption(li, pi, part, 0, e.target.value)}
                                     />
+                                    <p className="text-[10px] text-slate-400 ml-1 font-medium">이 빈칸은 빌더에서 설정한 정답이 텍스트로 보이며 선택형 기능은 비활성화됩니다.</p>
                                 </div>
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-rose-400 uppercase tracking-widest block">오답 1</label>
-                                    <input
-                                        className="w-full p-3 rounded-xl border border-rose-100 bg-rose-50/30 font-bold text-sm outline-none focus:ring-2 focus:ring-rose-200"
-                                        value={part.options?.[1] || ""}
-                                        onChange={(e) => updateOption(li, pi, part, 1, e.target.value)}
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-rose-400 uppercase tracking-widest block">오답 2</label>
-                                    <input
-                                        className="w-full p-3 rounded-xl border border-rose-100 bg-rose-50/30 font-bold text-sm outline-none focus:ring-2 focus:ring-rose-200"
-                                        value={part.options?.[2] || ""}
-                                        onChange={(e) => updateOption(li, pi, part, 2, e.target.value)}
-                                    />
-                                </div>
-                            </div>
-
-
+                            )}
                         </div>
                     ))}
+
 
                     {blanks.length === 0 && (
                         <div className="p-10 text-center bg-white rounded-2xl border border-dashed border-slate-200">
@@ -2539,9 +2825,27 @@ function ensureTogetherSelf(data) {
 
 function TogetherSelfEditor({ currentData, onChange, onClickLabelZip }) {
     const lines = Array.isArray(currentData?.lines) ? currentData.lines : [];
-    // [FIX] more strict self-study detection logic
-    const isThisPageSelf = currentData?.isSelfStudy || (currentData?.type === "스스로 풀기" || ((currentData?.title || "").includes("스스로") && !(currentData?.title || "").includes("함께")));
-    const [activeTab, setActiveTab] = React.useState(isThisPageSelf ? "self" : "together");
+    const rawType = (currentData?.type || "").trim();
+
+    const showTogetherTab =
+        rawType === "together" ||
+        rawType === "함께 풀기" ||
+        rawType === "together.self";
+
+    const showSelfTab =
+        rawType === "self" ||
+        rawType === "스스로 풀기" ||
+        rawType === "together.self";
+
+    const isThisPageSelf = showSelfTab && !showTogetherTab;
+
+    const [activeTab, setActiveTab] = React.useState(
+        showTogetherTab ? "together" : "self"
+    );
+
+    React.useEffect(() => {
+        setActiveTab(showTogetherTab ? "together" : "self");
+    }, [showTogetherTab, showSelfTab]);
 
     // blank 파트만 한 번에 모으기(순서 유지)
     const getBlanks = (targetLines) => {
@@ -2576,6 +2880,10 @@ function TogetherSelfEditor({ currentData, onChange, onClickLabelZip }) {
 
     const toggleLabel = (li, pi, part) => {
         patchPart(li, pi, { ...part, labelEnabled: !part.labelEnabled });
+    };
+
+    const toggleInput = (li, pi, part) => {
+        patchPart(li, pi, { ...part, inputEnabled: part.inputEnabled === false ? true : false });
     };
 
     // 텍스트 소스 편집 (함께 풀기 전용)
@@ -2626,24 +2934,28 @@ function TogetherSelfEditor({ currentData, onChange, onClickLabelZip }) {
 
     return (
         <div className="animate-in fade-in duration-500 space-y-6">
-            {/* Tab Navigation */}
             <div className="flex bg-slate-100 p-1.5 rounded-2xl w-fit">
-                <button
-                    onClick={() => setActiveTab("together")}
-                    className={`px-6 py-2.5 rounded-xl font-black text-sm transition-all ${activeTab === "together" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
-                >
-                    함께 풀기 (Together)
-                </button>
-                <button
-                    onClick={() => setActiveTab("self")}
-                    className={`px-6 py-2.5 rounded-xl font-black text-sm transition-all ${activeTab === "self" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
-                >
-                    스스로 풀기 (Self)
-                </button>
+                {showTogetherTab && (
+                    <button
+                        onClick={() => setActiveTab("together")}
+                        className={`px-6 py-2.5 rounded-xl font-black text-sm transition-all ${activeTab === "together" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                    >
+                        함께 풀기(라벨형)
+                    </button>
+                )}
+
+                {showSelfTab && (
+                    <button
+                        onClick={() => setActiveTab("self")}
+                        className={`px-6 py-2.5 rounded-xl font-black text-sm transition-all ${activeTab === "self" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                    >
+                        스스로 풀기(입력형)
+                    </button>
+                )}
             </div>
 
             {/* Together Section */}
-            {activeTab === "together" && (
+            {showTogetherTab && activeTab === "together" && (
                 <div className="p-8 bg-amber-50/60 border border-amber-200 rounded-[2.5rem] space-y-6">
                     <div className="flex items-center justify-between">
                         <div>
@@ -2686,16 +2998,27 @@ function TogetherSelfEditor({ currentData, onChange, onClickLabelZip }) {
             )}
 
             {/* Self Section */}
-            {activeTab === "self" && (
+            {showSelfTab && activeTab === "self" && (
                 <div className="p-8 bg-indigo-50/60 border border-indigo-200 rounded-[2.5rem] space-y-6">
                     <div>
                         <div className="text-xs font-black uppercase tracking-widest text-indigo-600">스스로 풀기 설정</div>
-                        <div className="text-sm font-bold text-slate-600 mt-1">빈칸에 들어갈 정답을 입력하세요.</div>
+                        <div className="text-sm font-bold text-slate-600 mt-1">빈칸별 정답을 수정할 수 있습니다. 입력칸 OFF를 누르면 입력칸을 삭제할 수 있습니다.</div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         {blanks.map(({ li, pi, part }, idx) => (
-                            <div key={`self-${li}-${pi}`} className="bg-white rounded-2xl border border-indigo-100 p-5 shadow-sm space-y-2">
-                                <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block">빈칸 {idx + 1}</label>
+                            <div key={`self-${li}-${pi}`} className="bg-white rounded-2xl border border-indigo-100 p-5 shadow-sm space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block">빈칸 {idx + 1}</label>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase">입력칸</span>
+                                        <button
+                                            onClick={() => toggleInput(li, pi, part)}
+                                            className={`px-3 py-1 rounded-lg font-black text-[10px] transition-all ${part.inputEnabled !== false ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
+                                        >
+                                            {part.inputEnabled !== false ? "ON" : "OFF"}
+                                        </button>
+                                    </div>
+                                </div>
                                 <input
                                     className="w-full p-3 rounded-xl border border-slate-200 font-bold focus:border-indigo-400 outline-none transition-all"
                                     value={getBlankAnswer(part)}
@@ -2720,6 +3043,100 @@ function GenericFallbackEditor({ currentData }) {
         <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-200 text-slate-500">
             <div className="font-black mb-2">이 타입은 전용 에디터가 없어요.</div>
             <pre className="text-xs overflow-auto">{JSON.stringify(currentData, null, 2)}</pre>
+        </div>
+    );
+}
+
+function QuestionImageEditor({ currentData, onChange }) {
+    const handleUpdate = (field, value) => {
+        onChange({ ...currentData, [field]: value });
+    };
+
+    return (
+        <div className="space-y-8">
+            <div className="p-8 bg-emerald-50/60 border border-emerald-200 rounded-[2.5rem] space-y-6">
+                <div>
+                    <div className="text-xs font-black uppercase tracking-widest text-emerald-600 mb-4">이미지형 문제 설정</div>
+                    <div className="space-y-6">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-xs font-bold text-slate-400 uppercase mb-2 block tracking-widest ml-1">입력칸 앞 텍스트 (Prefix)</label>
+                                <input
+                                    className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-4 ring-emerald-500/10 transition-all"
+                                    value={currentData.prefixText || ""}
+                                    onChange={(e) => handleUpdate("prefixText", e.target.value)}
+                                    placeholder='예: 넓이 = '
+                                />
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-400 uppercase mb-2 block tracking-widest ml-1">입력칸 뒤 텍스트 (Suffix)</label>
+                                <input
+                                    className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-4 ring-emerald-500/10 transition-all"
+                                    value={currentData.suffixText || ""}
+                                    onChange={(e) => handleUpdate("suffixText", e.target.value)}
+                                    placeholder='예: cm²'
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-slate-400 uppercase mb-2 block tracking-widest ml-1">정답 (Answer)</label>
+                            <input
+                                className="w-full p-4 bg-white border border-emerald-100 rounded-2xl text-lg font-bold text-emerald-700 outline-none focus:ring-4 ring-emerald-500/10 transition-all"
+                                value={currentData.answer || ""}
+                                onChange={(e) => handleUpdate("answer", e.target.value)}
+                                placeholder="정답을 입력하세요 (예: 25\pi)"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="text-xs font-bold text-slate-400 uppercase mb-2 block tracking-widest ml-1">해설 (Explanation)</label>
+                            <textarea
+                                className="w-full p-4 bg-white border border-emerald-100 rounded-2xl text-sm font-medium text-slate-700 outline-none focus:ring-4 ring-emerald-500/10 transition-all min-h-[120px]"
+                                value={currentData.explanation || ""}
+                                onChange={(e) => handleUpdate("explanation", e.target.value)}
+                                placeholder="상세한 풀이 과정을 입력하세요."
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="p-8 bg-rose-50/40 border border-rose-100 rounded-[2.5rem] space-y-6">
+                <div className="flex items-center justify-between">
+                    <div className="text-xs font-black uppercase tracking-widest text-rose-500">AI 삽화 탐지 정보 (Advanced)</div>
+                    <span className="text-[10px] font-bold text-rose-300">이 영역이 실제 문제 삽화를 포함해야 합니다.</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-6">
+                    <div>
+                        <label className="text-xs font-bold text-slate-400 mb-2 block ml-1">Figure Bounds (ymin, xmin, ymax, xmax)</label>
+                        <div className="flex gap-2">
+                            {(currentData.figure_bounds || [0, 0, 0, 0]).map((val, idx) => (
+                                <input
+                                    key={idx}
+                                    type="number"
+                                    className="w-full p-2 bg-white border border-rose-100 rounded-xl text-center font-bold text-xs text-rose-600"
+                                    value={val}
+                                    onChange={(e) => {
+                                        const next = [...(currentData.figure_bounds || [0, 0, 0, 0])];
+                                        next[idx] = parseInt(e.target.value) || 0;
+                                        handleUpdate("figure_bounds", next);
+                                    }}
+                                />
+                            ))}
+                        </div>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-400 mb-2 block ml-1">Figure Alt / Description</label>
+                        <input
+                            className="w-full p-2 bg-white border border-rose-100 rounded-xl font-medium text-xs text-slate-600 outline-none"
+                            value={currentData.figure_alt || ""}
+                            onChange={(e) => handleUpdate("figure_alt", e.target.value)}
+                            placeholder="삽화에 대해 설명해주세요."
+                        />
+                    </div>
+                </div>
+            </div>
         </div>
     );
 }
